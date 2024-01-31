@@ -29,12 +29,32 @@ def data_to_symbols(data: bytes, symbol_map: Dict, symbol_len):
         symbol_vec[i] = symbol_map[value >> shift & mask]
     return symbol_vec
 
+def iq_distance(symbol_1, symbol_2):
+    i_1 = symbol_1.real
+    i_2 = symbol_2.real
+    q_1 = symbol_1.imag
+    q_2 = symbol_2.imag
+
+    return math.sqrt((i_1 - i_2)**2 + (q_1 - q_2)**2)
+
 def symbols_to_data(symbols, symbol_map, symbol_len):
     data = bytearray()
     decoded_bits = 0
     buffer = 0
     for symbol in symbols:
-        bits = symbol_map[symbol]
+        min_distance = 1000
+        best_symbol = None
+        for ref_symbol in symbol_map.keys():
+            if isinstance(ref_symbol, complex):
+                if best_symbol is None:
+                    best_symbol = ref_symbol
+                    min_distance = iq_distance(ref_symbol, symbol)
+                    continue
+                dist = iq_distance(ref_symbol, symbol)
+                if dist < min_distance:
+                    best_symbol = ref_symbol
+                    min_distance = dist
+        bits = symbol_map[best_symbol]
         buffer = bits << decoded_bits | buffer
         decoded_bits += symbol_len
         while decoded_bits >= 8:
@@ -109,7 +129,7 @@ def butter_lowpass_filter(data, cutoff, fs, order=2):
 def signal_to_iq_samples(signal, sample_rate_hz, carrier_freq_hz):
     num_samples = len(signal)
     t = np.arange(num_samples)/sample_rate_hz
-    t = t+0.111111
+    t = t+0.11
     rx_lo_i = np.sin(2*np.pi*carrier_freq_hz*t)
     rx_lo_q = np.cos(2*np.pi*carrier_freq_hz*t)
 
@@ -235,6 +255,6 @@ if __name__ == "__main__":
 
     # print(data_symbols, 50, 16 * 1000)
 
-    data_decoded = symbols_to_data(data_symbols, QAM_SYMBOLS_DECODE, 2)
+    data_decoded = symbols_to_data(rx_symbols, QAM_SYMBOLS_DECODE, 2)
 
     print(list(data_decoded))
