@@ -1,0 +1,24 @@
+class HexDataInput():
+    def __init__(self, data_string, port_out):
+        self.data_sting = data_string
+        self.port_out = port_out
+
+    def start(self):
+        if self.data_string is None:
+            msg = 'deadbeef' # first 32 symbols are for time sync
+            msg += '0123456789abcdeffefebaba'*10 # some random hex for fun
+        bytes = bytes.fromhex(msg)
+
+        for byte in bytes:
+            self.port_out.put(byte)
+
+class HexDataOutput():
+    def __init__(self, port_in):
+        """ port in is byte type
+        """
+        self.port_in = port_in
+
+    def start(self):
+        while True:
+            byte = self.port_in.get()
+            print(byte, end='')
