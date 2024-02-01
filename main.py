@@ -240,8 +240,8 @@ if __name__ == "__main__":
     signal_to_wav(signal, sample_rate_hz, "tx.wav")
 
     rx_signal, rx_sample_rate_hz = wav_to_signal("Record-2024-0131-121827.wav")
-    rx_signal = signal
-    rx_sample_rate_hz = sample_rate_hz
+    # rx_signal = signal
+    # rx_sample_rate_hz = sample_rate_hz
     print("RX_sample_rate: " + str(rx_sample_rate_hz))
     save_spectrogram(rx_signal, fft_size, rx_sample_rate_hz, "rx_waterfall.jpg")
     save_signal_slice(rx_signal, 1, 150, rx_sample_rate_hz, "rx_signal.jpg")
