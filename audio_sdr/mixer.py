@@ -1,11 +1,15 @@
 """ Components which are capable of combining or splitting signals
 """
+import multiprocessing as mp
+
 
 class Mixer():
     def __init__(self, port_in_1, port_in_2, port_out):
         self.port_in_1 = port_in_1
         self.port_in_2 = port_in_2
         self.port_out = port_out
+        p = mp.Process(target=self.start)
+        p.start()
     
     def start(self):
         while True:
@@ -18,6 +22,8 @@ class Adder():
         self.port_in_1 = port_in_1
         self.port_in_2 = port_in_2
         self.port_out = port_out
+        p = mp.Process(target=self.start)
+        p.start()
     
     def start(self):
         while True:
@@ -35,6 +41,8 @@ class IQJoiner():
         self.port_i_in = port_i_in
         self.port_q_in = port_q_in
         self.port_out = port_out
+        p = mp.Process(target=self.start)
+        p.start()
     
     def start(self):
         while True:

@@ -1,11 +1,14 @@
 import numpy as np
 from scipy.io.wavfile import write
+import multiprocessing as mp
 
 class WAVPlayer():
     def __init__(self, port_in, sample_rate_hz, filename):
         self.port_in = port_in
         self.sample_rate_hz = sample_rate_hz
         self.filename = filename
+        p = mp.Process(target=self.start)
+        p.start()
 
     def start(self):
         data = []

@@ -1,4 +1,5 @@
 import numpy as np
+import multiprocessing as mp
 
 class Scaler():
     def __init__(self, port_in, port_out, batch_size):
@@ -9,6 +10,8 @@ class Scaler():
         self.port_in = port_in
         self.port_out = port_out
         self.batch_size = batch_size
+        p = mp.Process(target=self.start)
+        p.start()
 
     def start(self):
         while True:

@@ -13,5 +13,5 @@ class Port():
     def get_buffered(self, num_items):
         list = []
         while len(list) < num_items:
-            list += self.queue.get()
+            list.append(self.queue.get())
         return list

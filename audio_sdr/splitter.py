@@ -1,3 +1,5 @@
+import multiprocessing as mp
+
 class IQSplitter():
     def __init__(self, port_in, port_i_out, port_q_out):
         """
@@ -9,6 +11,8 @@ class IQSplitter():
         self.port_in = port_in
         self.port_i_out = port_i_out
         self.port_q_out = port_q_out
+        p = mp.Process(target=self.start)
+        p.start()
 
     def start(self):
         while True:

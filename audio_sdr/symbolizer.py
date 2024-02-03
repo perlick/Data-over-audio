@@ -1,6 +1,7 @@
 import logging
 import math
 import numpy as np
+import multiprocessing as mp
 
 logger = logging.getLogger()
 
@@ -38,14 +39,19 @@ class Symbolizer():
         self.port_out = port_out
         self.symbol_map = Symbolizer.encodings[encoding]['symbol_map']
         self.symbol_len = Symbolizer.encodings[encoding]['bit_len']
+        p = mp.Process(target=self.start)
+        p.start()
 
     def start(self):
         data = bytearray()
         remainder_offset = 0
+        num_data_bits = len(data) * 8 - remainder_offset
         while True:
-            num_data_bits = len(data) * 8 - remainder_offset
+            print("here")
             while num_data_bits < self.symbol_len:
-                data.append(self.port_in.get_buffered(1))
+                data.append(self.port_in.get())
+                num_data_bits = len(data) * 8 - remainder_offset
+            print(f"symbolizer found data! {data}")
             mask = 2**self.symbol_len - 1
             num_symbols = int(num_data_bits // self.symbol_len)
             remainder = num_data_bits % self.symbol_len
@@ -80,6 +86,8 @@ class DeSymbolizer():
         self.port_out = port_out
         self.symbol_map = DeSymbolizer.encodings[encoding]['symbol_map']
         self.symbol_len = DeSymbolizer.encodings[encoding]['bit_len']
+        p = mp.Process(target=self.start)
+        p.start()
     
     def start(self):
         decoded_bits = 0

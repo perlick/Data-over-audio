@@ -1,5 +1,7 @@
 """ Components that act as filters
 """
+import multiprocessing as mp
+
 from scipy.signal import butter,filtfilt
 
 class ButterLowpassFilter():
@@ -16,7 +18,8 @@ class ButterLowpassFilter():
         self.sample_rate_hz = sample_rate_hz
         self.batch_size = batch_size
         self.order = order
-
+        p = mp.Process(target=self.start)
+        p.start()
 
     def start(self):
         nyq = 0.5*self.sample_rate_hz

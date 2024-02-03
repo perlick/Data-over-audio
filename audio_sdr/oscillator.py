@@ -1,3 +1,4 @@
+import multiprocessing as mp
 import math
 
 class LocalOscillator():
@@ -9,8 +10,11 @@ class LocalOscillator():
             self.func = math.sin
         if func == "cos":
             self.func = math.cos
+        p = mp.Process(target=self.start)
+        p.start()
 
     def start(self):
+        t=0
         while True:
             lo_s = self.func(2*math.pi*self.tune_freq_hz*t)
             self.port_out.put(lo_s)
