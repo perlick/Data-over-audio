@@ -1252,6 +1252,11 @@ function dbg(text) {
       return _wasmWorkersID++;
     };
 
+  var nowIsMonotonic = 1;
+  var __emscripten_get_now_is_monotonic = () => nowIsMonotonic;
+
+  var _emscripten_date_now = () => Date.now();
+
   var _emscripten_get_now;
       // Modern environment where performance.now() is supported:
       // N.B. a shorter form "_emscripten_get_now = performance.now;" is
@@ -1277,10 +1282,10 @@ function dbg(text) {
     };
 
   /** @suppress {duplicate } */
-  var _wasmWorkerPostFunction1 = (id, funcPtr, arg0) => {
-      _wasmWorkers[id].postMessage({'_wsc': funcPtr, 'x': [arg0] }); // "WaSm Call"
+  var _wasmWorkerPostFunction2 = (id, funcPtr, arg0, arg1) => {
+      _wasmWorkers[id].postMessage({'_wsc': funcPtr, 'x': [arg0, arg1] }); // "WaSm Call"
     };
-  var _emscripten_wasm_worker_post_function_vi = _wasmWorkerPostFunction1;
+  var _emscripten_wasm_worker_post_function_vii = _wasmWorkerPostFunction2;
 
   var printCharBuffers = [null,[],[]];
   
@@ -1392,13 +1397,17 @@ var wasmImports = {
   /** @export */
   _emscripten_create_wasm_worker: __emscripten_create_wasm_worker,
   /** @export */
+  _emscripten_get_now_is_monotonic: __emscripten_get_now_is_monotonic,
+  /** @export */
+  emscripten_date_now: _emscripten_date_now,
+  /** @export */
   emscripten_get_now: _emscripten_get_now,
   /** @export */
   emscripten_resize_heap: _emscripten_resize_heap,
   /** @export */
   emscripten_wasm_worker_post_function_v: _emscripten_wasm_worker_post_function_v,
   /** @export */
-  emscripten_wasm_worker_post_function_vi: _emscripten_wasm_worker_post_function_vi,
+  emscripten_wasm_worker_post_function_vii: _emscripten_wasm_worker_post_function_vii,
   /** @export */
   fd_write: _fd_write,
   /** @export */
@@ -1606,7 +1615,7 @@ var missingLibrarySymbols = [
   'writeStringToMemory',
   'writeAsciiToMemory',
   'setErrNo',
-  '_wasmWorkerPostFunction2',
+  '_wasmWorkerPostFunction1',
   '_wasmWorkerPostFunction3',
 ];
 missingLibrarySymbols.forEach(missingLibrarySymbol)
@@ -1713,7 +1722,7 @@ var unexportedSymbols = [
   '_wasmWorkerAppendToQueue',
   '_wasmWorkerRunPostMessage',
   '_wasmWorkerInitializeRuntime',
-  '_wasmWorkerPostFunction1',
+  '_wasmWorkerPostFunction2',
 ];
 unexportedSymbols.forEach(unexportedRuntimeSymbol);
 
