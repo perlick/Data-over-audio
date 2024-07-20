@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <complex.h>
+#include <alsa/asoundlib.h>
 
 #define noop
 
@@ -68,17 +69,37 @@ struct mcs {
     int channel_coding; // 0 is none
     int bits_per_symbol; // number of bits per symbol
     int num_symbols; // number of symbols / len of lists
-    char *symbol_list_int; //array of integer symbols
-    float complex *symbol_list_complex; // parallel array of complex numbers
-
+    char *symbol_list_int; //array of integer symbols. data representation
+    float complex *symbol_list_complex; // parallel array of complex numbers. signal representation
+    int output_sample_rate_hz; // rate of the samples being sent to hardware device
+    int symbol_rate_hz; // rate of symbols being encoded into signal
 };
 typedef struct mcs MCS;
 
+void start_tx_chain(CircBuf *buf, int output_sample_rate_hz){
+    int tx_max_frame_size_bytes = 64;
+    // buffer for raw data
+    char* sample_buf = malloc(tx_max_frame_size_bytes);
+    while(1){
+        // read IQ samples from circular buffer
+        // if no samples queue some small amount of empty noise
+}
+
 void start_transmit(CircBuf *buf, MCS *mcs){
     int tx_max_frame_size_bytes = 64;
+    // buffer for raw data
     char* data_buf = malloc(tx_max_frame_size_bytes);
+    // buffer for symbols
     int symbol_buf_len = ((tx_max_frame_size_bytes*8) / mcs->bits_per_symbol) + 1;
     float complex *symbol_buf = malloc(symbol_buf_len);
+    // buffer for upscaled symbols
+    if (mcs->output_sample_rate_hz % mcs->symbol_rate_hz != 0){
+    	printf("output_sample_rate_hz must be divisible by symbol_rate_hz!")
+        exit(1);
+    }
+    int samples_per_symbol = mcs->output_sample_rate_hz / mcs->symbol_rate_hz;
+    int sample_buf_len = symbol_buf_len * samples_per_symbol;
+    float complex *sample_buf = malloc(sample_buf_len);
     while(1){
 
         // read data from circular buffer
@@ -110,6 +131,7 @@ void start_transmit(CircBuf *buf, MCS *mcs){
             }
             int shift = first_bit_index % 8;
             sym_int = sym_int >> shift & mask;
+            // TODO convert this to a dict lookup 
             for(int j=0;j<mcs->num_symbols;j=j+1){
                 if(sym_int == mcs->symbol_list_int[j]){
                     symbol_buf[i] = mcs->symbol_list_complex[j];
@@ -120,9 +142,20 @@ void start_transmit(CircBuf *buf, MCS *mcs){
         }
 
         // do pulse shaping with matched filter. upscaling by samples per symbol
+        // For now, do not do pulse shaping, just upscale 
+        num_samples = num_symbols * samples_per_symbol;
+        for(int i=0;i<num_symbols;i++){
+            for(int j=0;j<samples_per_symbol;j++){
+                sample_idx = i * samples_per_symbol + j
+                sample_buf[sample_idx] = symbol_buf[i];
+            }
+        }
+
+        // At this point, there's no concept of time. We just know we want to send these IQ samples over the air at some point in time. Doesn't matter when. Sooner the beter.
 
         // Do SDR part. Upconvert I & Q -> Sum -> send to Web Audio API
-
+        // The SDR part just reads IQ samples at the output sample rate, mixes them with Lo, adds together, and sends to the antenna. it does have an important job of maintaining the time and Lo phase between packets. For this reason I will separate into a subprocess 
+        
         sleep(1);
     }
     return;
@@ -179,9 +212,11 @@ int main(){
     mcs1.symbol_list_complex[2] = -1 + I;
     mcs1.symbol_list_int[3] = 3;
     mcs1.symbol_list_complex[3] = -1 + -1*I;
+    mcs1.output_sample_rate_hz = 8e3
+    mcs1.symbol_rate_hz = 1
     
-
     start_transmit(&in_buf, &mcs1);
 
     return 0;
 };
+
