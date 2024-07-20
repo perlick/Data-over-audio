@@ -1,3 +1,2 @@
 all:
-	. ../emsdk/emsdk_env.sh
-	emcc -sWASM_WORKERS src/hello.c -o src/hello.js
+	gcc -g src/main.c -o main.out

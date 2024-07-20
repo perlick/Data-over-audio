@@ -74,9 +74,7 @@ struct mcs {
 };
 typedef struct mcs MCS;
 
-void start_transmit(int in_buf, int cur_mcs){
-    CircBuf *buf = (CircBuf *) in_buf;
-    MCS *mcs = (MCS *) cur_mcs;
+void start_transmit(CircBuf *buf, MCS *mcs){
     int tx_max_frame_size_bytes = 64;
     char* data_buf = malloc(tx_max_frame_size_bytes);
     int symbol_buf_len = ((tx_max_frame_size_bytes*8) / mcs->bits_per_symbol) + 1;
@@ -181,14 +179,9 @@ int main(){
     mcs1.symbol_list_complex[2] = -1 + I;
     mcs1.symbol_list_int[3] = 3;
     mcs1.symbol_list_complex[3] = -1 + -1*I;
-
     
 
-    emscripten_wasm_worker_t worker_tx = emscripten_malloc_wasm_worker(/*stackSize: */1024);
-    emscripten_wasm_worker_post_function_vii(worker_tx, start_transmit,(int) &in_buf,(int) &mcs1);
-
-    emscripten_wasm_worker_t worker_rx = emscripten_malloc_wasm_worker(/*stackSize: */1024);
-    emscripten_wasm_worker_post_function_v(worker_rx, start_receive);
+    start_transmit(&in_buf, &mcs1);
 
     return 0;
 };
