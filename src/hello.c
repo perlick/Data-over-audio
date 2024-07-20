@@ -1,4 +1,3 @@
-#include <emscripten/wasm_worker.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -66,7 +65,7 @@ int intPow(int x,int n)
 }
 
 struct mcs {
-    int channel_conding; // 0 is none
+    int channel_coding; // 0 is none
     int bits_per_symbol; // number of bits per symbol
     int num_symbols; // number of symbols / len of lists
     char *symbol_list_int; //array of integer symbols
@@ -88,7 +87,7 @@ void start_transmit(int in_buf, int cur_mcs){
         int num_read = read_buf(buf, tx_max_frame_size_bytes, data_buf);
 
         // channel coding 
-        if (mcs->channel_conding==0){
+        if (mcs->channel_coding==0){
             noop;
         }
         
@@ -169,7 +168,7 @@ int main(){
     int x = write_buf(myArray, 24, &in_buf);
 
     struct mcs mcs1;
-    mcs1.channel_conding = 0;
+    mcs1.channel_coding = 0;
     mcs1.bits_per_symbol = 2;
     mcs1.num_symbols = 4;
     mcs1.symbol_list_int = malloc(mcs1.num_symbols);
