@@ -16,7 +16,7 @@
 
 #define noop
 
-static char *device = "plughw:0,0";         /* playback device */
+static char *device = "default";         /* playback device */
 static snd_pcm_format_t format = SND_PCM_FORMAT_S16;    /* sample format */
 static unsigned int channels = 1;           /* count of channels */
 static unsigned int rate;           /* stream rate */
@@ -163,13 +163,13 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
         steps[chn] = areas[chn].step / 8;
         samples[chn] += offset * steps[chn];
     }
-    // For each sample, find Lo value, mix with I and Q, then add together
 
     /* fill the channel areas */
     while (count-- > 0) {
         // read a sample from the buffer
-        int num_read = read_buf(iq_buf, sizeof(float complex), &sample);
-        
+        // TODO this buf read is causing stack smashing
+        int num_read = read_buf(iq_buf, 1, &sample);
+
         union {
             float f;
             int i;
@@ -178,10 +178,11 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
         if (is_float) {
             fval.f = creal(sample) * sin(phase) + cimag(sample) * cos(phase);
             res = fval.i;
-        } else
+        } else {
             // Assumes amplitudes of I and Q do not exceed -1,1
             res = creal(sample) * sin(phase) + cimag(sample) * cos(phase);
             res = res * maxval;
+        }
         if (to_unsigned)
             res ^= 1U << (format_bits - 1);
         for (chn = 0; chn < channels; chn++) {
@@ -379,7 +380,7 @@ static int write_and_poll_loop(snd_pcm_t *handle,
     double phase = 0;
     signed short *ptr;
     int err, count, cptr, init;
- 
+    
     count = snd_pcm_poll_descriptors_count (handle);
     if (count <= 0) {
         printf("Invalid poll descriptors count\n");
@@ -415,8 +416,14 @@ static int write_and_poll_loop(snd_pcm_t *handle,
                 }
             }
         }
+    
+        printf("Poll returned. Generating Samples.\n");
+        fflush(stdout);
  
         run_front_end_calculation(areas, 0, period_size, &phase, iq_buf);
+        
+        printf("Done generating samples.\n");
+        fflush(stdout);
         ptr = samples;
         cptr = period_size;
         while (cptr > 0) {
@@ -537,6 +544,9 @@ void start_tx_chain(CircBuf *iq_buf, MCS *mcs){
         areas[chn].first = chn * snd_pcm_format_physical_width(format);
         areas[chn].step = channels * snd_pcm_format_physical_width(format);
     }
+ 
+    printf("starting transfer loop.\n");
+    fflush(stdout);
  
     err = transfer_methods[method].transfer_loop(handle, samples, areas, iq_buf);
     if (err < 0)
