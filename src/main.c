@@ -27,6 +27,7 @@ static double freq;               /* sinusoidal wave frequency in Hz */
 static int verbose = 0;                 /* verbose flag */
 static int resample = 0;                /* enable alsa-lib resampling */
 static int period_event = 1;                /* produce poll event after each period */
+static int max_L2_packet_size_bytes = 1500;
  
 static snd_pcm_sframes_t buffer_size;
 static snd_pcm_sframes_t period_size;
@@ -111,7 +112,7 @@ int write_buf(void *in_buf, int len, CircBuf *me, int block){
     me->write_idx = (me->write_idx + len) % me->len;
     // update count
     me->count = me->count + len;
-    // printf("buf_size: %d \n", me->count);
+    printf("buf_size: %d \n", me->count);
     return len;
 }
 
@@ -548,11 +549,10 @@ void start_tx_chain(CircBuf *iq_buf, MCS *mcs){
 }
 
 void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
-    int tx_max_frame_size_bytes = 64;
     // buffer for raw data
-    char* data_buf = malloc(tx_max_frame_size_bytes);
+    char* data_buf = malloc(max_L2_packet_size_bytes);
     // buffer for symbols
-    int symbol_buf_len = ((tx_max_frame_size_bytes*8) / mcs->bits_per_symbol) + 1;
+    int symbol_buf_len = ((max_L2_packet_size_bytes*8) / mcs->bits_per_symbol) + 1;
     float complex *symbol_buf = malloc(symbol_buf_len);
     // buffer for upscaled symbols
     if (mcs->output_sample_rate_hz % mcs->symbol_rate_hz != 0){
@@ -563,7 +563,7 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
     int sample_buf_len = symbol_buf_len * samples_per_symbol;
 
     // read data from circular buffer
-    int num_read = read_buf(buf, tx_max_frame_size_bytes, data_buf);
+    int num_read = read_buf(buf, max_L2_packet_size_bytes, data_buf);
 
     // channel coding 
     if (mcs->channel_coding==0){
@@ -598,7 +598,7 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
                 break;
             }
         }
-        // printf("symbol %d: %f + i%f\n", i, creal(symbol_buf[i]), cimag(symbol_buf[i]));
+        printf("symbol %d: %f + i%f\n", i, creal(symbol_buf[i]), cimag(symbol_buf[i]));
     }
 
     // do pulse shaping with matched filter. upscaling by samples per symbol
@@ -641,7 +641,6 @@ void start_receive(){
 int main(){
     char myArray[] = { 0xff, 0x11, 0x22, 0xff, 0xec, 0x12, 0x00, 0x11, 0x22, 0xff, 0xec, 0x12, 0x00, 0x11, 0x22, 0xff, 0xec, 0x12,0x00, 0x11, 0x22, 0xff, 0xec, 0x12};
  
-    int max_L2_packet_size_bytes = 1500;
     char* tx_input_buffer = malloc(max_L2_packet_size_bytes);
 
     struct circBuf in_buf;
