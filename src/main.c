@@ -1,9 +1,18 @@
 #include <stdio.h>
-#include <unistd.h>
 #include <stdlib.h>
-#include <complex.h>
-#include <math.h>
+#include <string.h>
+#include <sched.h>
+#include <errno.h>
+#include <getopt.h>
 #include <alsa/asoundlib.h>
+#include <sys/time.h>
+#include <math.h>
+#include <unistd.h>
+#include <complex.h>
+ 
+#ifndef ESTRPIPE
+#define ESTRPIPE ESPIPE
+#endif
 
 #define noop
 
@@ -13,10 +22,11 @@ static unsigned int channels = 1;           /* count of channels */
 static unsigned int rate;           /* stream rate */
 static unsigned int buffer_time = 2e5;       /* ring buffer length in us */
 static unsigned int period_time = 1e5;       /* period time in us */
+static int method = 1;
 static double freq;               /* sinusoidal wave frequency in Hz */
 static int verbose = 0;                 /* verbose flag */
 static int resample = 0;                /* enable alsa-lib resampling */
-static int period_event = 0;                /* produce poll event after each period */
+static int period_event = 1;                /* produce poll event after each period */
  
 static snd_pcm_sframes_t buffer_size;
 static snd_pcm_sframes_t period_size;
@@ -43,9 +53,17 @@ struct circBuf {
     int count; // number of read-able elements in the buf
 };
 typedef struct circBuf CircBuf ;
-
 static int write_buf(void *in_buf, int len, CircBuf *me, int block);
 static int read_buf(CircBuf *me, int len, void *out_buf);
+
+struct transfer_method {
+    const char *name;
+    snd_pcm_access_t access;
+    int (*transfer_loop)(snd_pcm_t *handle,
+                 signed short *samples,
+                 snd_pcm_channel_area_t *areas,
+                 CircBuf *iq_buf);
+};
 
 /* Read len elem from circular buffer into out_buf.
 
@@ -437,15 +455,6 @@ static int write_and_poll_loop(snd_pcm_t *handle,
     }
 }
 
-struct transfer_method {
-    const char *name;
-    snd_pcm_access_t access;
-    int (*transfer_loop)(snd_pcm_t *handle,
-                 signed short *samples,
-                 snd_pcm_channel_area_t *areas,
-                 CircBuf *iq_buf);
-};
- 
 static struct transfer_method transfer_methods[] = {
     { "write", SND_PCM_ACCESS_RW_INTERLEAVED, NULL },
     { "write_and_poll", SND_PCM_ACCESS_RW_INTERLEAVED, write_and_poll_loop },
@@ -457,16 +466,16 @@ static struct transfer_method transfer_methods[] = {
     { NULL, SND_PCM_ACCESS_RW_INTERLEAVED, NULL }
 };
 
+
 void start_tx_chain(CircBuf *iq_buf, MCS *mcs){
     snd_pcm_t *handle;
-    static snd_output_t *output = NULL;
     int err, morehelp;
     rate = mcs->output_sample_rate_hz;
     freq = mcs->carrier_freq_hz;
     
     snd_pcm_hw_params_t *hwparams;
     snd_pcm_sw_params_t *swparams;
-    int method = 0;
+    
     signed short *samples;
     unsigned int chn;
     snd_pcm_channel_area_t *areas;
@@ -492,6 +501,7 @@ void start_tx_chain(CircBuf *iq_buf, MCS *mcs){
     printf("Playback device is %s\n", device);
     printf("Stream parameters are %uHz, %s, %u channels\n", rate, snd_pcm_format_name(format), channels);
     printf("Using transfer method: %s\n", transfer_methods[method].name);
+    fflush(stdout);
  
     if ((err = snd_pcm_open(&handle, device, SND_PCM_STREAM_PLAYBACK, 0)) < 0) {
         printf("Playback open error: %s\n", snd_strerror(err));
@@ -674,9 +684,12 @@ int main(){
     fe_buf.write_idx = 0;
     fe_buf.count = 0;
    
+    printf("Initialized Buffers.\n");
+    fflush(stdout);
     // write a packet of IQ samples to buffer
     tx_encode_packet(&in_buf, &mcs1, &fe_buf);
-
+    printf("encoded_samples: %d\n", fe_buf.count);
+    fflush(stdout);
     // setup and start playing the buffer
     start_tx_chain(&fe_buf, cur_mcs);
  
