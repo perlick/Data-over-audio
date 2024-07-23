@@ -185,9 +185,8 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
             res = fval.i;
         } else {
             // Assumes amplitudes of I and Q do not exceed -1,1
-            res = creal(sample) * sin(phase) + cimag(sample) * cos(phase);
-            printf("fe calc: I(%f) * sin(%f) + Q(%f) * cos(%f) = res(%d); maxval(%d)\n", creal(sample), phase, cimag(sample), phase, res, maxval);
-            res = res * maxval;
+            res = creal(sample) * sin(phase) + cimag(sample) * cos(phase) * maxval;
+            printf("fe calc: I(%f) * sin(%f) + Q(%f) * cos(%f) * maxval(%d) = res(%d); \n", creal(sample), phase, cimag(sample), phase, maxval, res);
         }
         if (to_unsigned)
             res ^= 1U << (format_bits - 1);
@@ -692,8 +691,8 @@ int main(){
     mcs1.symbol_list_complex[2] = -1 + I;
     mcs1.symbol_list_int[3] = 3;
     mcs1.symbol_list_complex[3] = -1 + -1*I;
-    mcs1.output_sample_rate_hz = 1000;
-    mcs1.symbol_rate_hz = 10;
+    mcs1.output_sample_rate_hz = 8000;
+    mcs1.symbol_rate_hz = 100;
     mcs1.carrier_freq_hz = 440;
 
     struct mcs *cur_mcs = &mcs1;
