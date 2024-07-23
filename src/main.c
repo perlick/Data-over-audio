@@ -11,6 +11,7 @@
 #include <complex.h>
 #include <sys/mman.h> 
 #include <signal.h>
+#include <sys/wait.h>
 
 #ifndef ESTRPIPE
 #define ESTRPIPE ESPIPE
@@ -30,6 +31,8 @@ static int verbose = 0;                 /* verbose flag */
 static int resample = 0;                /* enable alsa-lib resampling */
 static int period_event = 1;                /* produce poll event after each period */
 static int max_L2_packet_size_bytes = 1500;
+
+pid_t fe_child;
  
 static snd_pcm_sframes_t buffer_size;
 static snd_pcm_sframes_t period_size;
@@ -674,6 +677,13 @@ void* create_shared_memory(size_t size){
 }
 
 static void handler(int signum){
+    int err;
+    if (fe_child != 0){
+        kill(fe_child, SIGHUP);
+        kill(fe_child, SIGINT);
+        kill(fe_child, SIGTERM);
+    }
+    while(wait(NULL) != -1 || errno == EINTR);
     exit(1);
 }
 
@@ -682,12 +692,12 @@ int main(){
     struct sigaction sa;
     sa.sa_handler = handler;
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
+    sa.sa_flags = 0;
 
-    if (sigaction(SIGINT, &sa, NULL) == -1)
-        printf("failed to register signal handler SIGINT: %s", strerror(errno));
-    if (sigaction(SIGHUP, &sa, NULL) == -1)
-        printf("failed to register signal handler SIGINT: %s", strerror(errno));
+    if (sigaction(SIGINT, &sa, NULL) == -1){
+        printf("failed to register signal handler SIGINT: %s\n", strerror(errno));
+        exit(1);
+    }
 
     char myArray[] = { 0xff, 0x11, 0x22, 0xff, 0xec, 0x12, 0x00, 0x11, 0x22, 0xff, 0xec, 0x12, 0x00, 0x11, 0x22, 0xff, 0xec, 0x12,0x00, 0x11, 0x22, 0xff, 0xec, 0x12};
  
@@ -741,8 +751,7 @@ int main(){
     tx_encode_packet(&in_buf, &mcs1, &fe_buf);
     
     // setup and start playing the buffer
-    pid_t child;
-    if ((child=fork())==0){
+    if ((fe_child=fork())==0){
         start_tx_chain(&fe_buf, cur_mcs);
     }
  
@@ -752,6 +761,6 @@ int main(){
     x = write_buf(myArray, 24, &in_buf, 1);
     sleep(1);
     x = write_buf(myArray, 24, &in_buf, 1);
-    return 0;
+    while(wait(NULL) != -1 || errno == EINTR);
 };
 
