@@ -23,8 +23,8 @@ static char *device = "default";         /* playback device */
 static snd_pcm_format_t format = SND_PCM_FORMAT_S16;    /* sample format */
 static unsigned int channels = 1;           /* count of channels */
 static unsigned int rate;           /* stream rate */
-static unsigned int buffer_time = 2e5;       /* ring buffer length in us */
-static unsigned int period_time = 1e5;       /* period time in us */
+static unsigned int buffer_time = 2e3;       /* ring buffer length in us */
+static unsigned int period_time = 1e3;       /* period time in us */
 static int method = 1;
 static double freq;               /* sinusoidal wave frequency in Hz */
 static int verbose = 0;                 /* verbose flag */
@@ -427,13 +427,9 @@ static int write_and_poll_loop(snd_pcm_t *handle,
             }
         }
     
-        printf("Poll returned. Generating Samples.\n");
-        fflush(stdout);
  
         run_front_end_calculation(areas, 0, period_size, &phase, iq_buf, lo_freq);
         
-        printf("Done generating samples.\n");
-        fflush(stdout);
         ptr = samples;
         cptr = period_size;
         while (cptr > 0) {
@@ -619,7 +615,7 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
                 break;
             }
         }
-        printf("symbol %d: %f + i%f\n", i, creal(symbol_buf[i]), cimag(symbol_buf[i]));
+        //printf("symbol %d: %f + i%f\n", i, creal(symbol_buf[i]), cimag(symbol_buf[i]));
     }
 
     // do pulse shaping with matched filter. upscaling by samples per symbol
@@ -712,13 +708,28 @@ int main(){
     in_buf.count = 0;
 
     int x = write_buf(myArray, 24, &in_buf, 1);
+    
+    /* bpsk */
+    struct mcs mcs0;
+    mcs0.channel_coding = 0;
+    mcs0.bits_per_symbol = 1;
+    mcs0.num_symbols = 2;
+    mcs0.symbol_list_int = malloc(mcs0.num_symbols);
+    mcs0.symbol_list_complex = malloc(mcs0.num_symbols * sizeof(complex float));
+    mcs0.symbol_list_int[0] = 0;
+    mcs0.symbol_list_complex[0] = 1 + 0*I;
+    mcs0.symbol_list_int[1] = 1;
+    mcs0.symbol_list_complex[1] = -1 + 0*I;
+    mcs0.output_sample_rate_hz = 8000;
+    mcs0.symbol_rate_hz = 100;
+    mcs0.carrier_freq_hz = 440;
 
     struct mcs mcs1;
     mcs1.channel_coding = 0;
     mcs1.bits_per_symbol = 2;
     mcs1.num_symbols = 4;
     mcs1.symbol_list_int = malloc(mcs1.num_symbols);
-    mcs1.symbol_list_complex = malloc(mcs1.num_symbols * sizeof(*mcs1.symbol_list_complex));
+    mcs1.symbol_list_complex = malloc(mcs1.num_symbols * sizeof(complex float));
     mcs1.symbol_list_int[0] = 0;
     mcs1.symbol_list_complex[0] = 1 + I;
     mcs1.symbol_list_int[1] = 1;
@@ -755,15 +766,23 @@ int main(){
         start_tx_chain(fe_buf, cur_mcs);
     }
  
-    sleep(1);
-    x = write_buf(myArray, 24, &in_buf, 1);
-    tx_encode_packet(&in_buf, &mcs1, fe_buf);
-    sleep(1);
-    x = write_buf(myArray, 24, &in_buf, 1);
-    tx_encode_packet(&in_buf, &mcs1, fe_buf);
-    sleep(1);
-    x = write_buf(myArray, 24, &in_buf, 1);
-    tx_encode_packet(&in_buf, &mcs1, fe_buf);
-    while(wait(NULL) != -1 || errno == EINTR);
+
+    char *line = NULL;
+    size_t size;
+    size_t num;
+    while (1){
+        num = getline(&line, &size, stdin);
+        if (num == -1) {
+            printf("No line\n");
+        } else {
+            x = write_buf(line, num, &in_buf, 1);
+            tx_encode_packet(&in_buf, &mcs1, fe_buf);
+        }
+    }
+
+    /* send user inputs! */
+    while(wait(NULL) != -1 || errno == EINTR){
+    
+    }
 };
 
