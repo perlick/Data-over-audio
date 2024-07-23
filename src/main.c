@@ -9,7 +9,9 @@
 #include <math.h>
 #include <unistd.h>
 #include <complex.h>
- 
+#include <sys/mman.h> 
+#include <signal.h>
+
 #ifndef ESTRPIPE
 #define ESTRPIPE ESPIPE
 #endif
@@ -637,6 +639,8 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
     free(sample_buf);
     free(symbol_buf);
     free(data_buf);
+    printf("encoded_samples: %d\n", count);
+    fflush(stdout);
     return;
 }
 
@@ -662,7 +666,29 @@ void start_receive(){
     return;
 }
 
+void* create_shared_memory(size_t size){
+    int protection = PROT_READ | PROT_WRITE;
+    int visibility = MAP_SHARED | MAP_ANONYMOUS;
+    return mmap(NULL, size, protection, visibility, -1, -0);
+
+}
+
+static void handler(int signum){
+    exit(1);
+}
+
 int main(){
+    /* setup bsaic handlers*/
+    struct sigaction sa;
+    sa.sa_handler = handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+
+    if (sigaction(SIGINT, &sa, NULL) == -1)
+        printf("failed to register signal handler SIGINT: %s", strerror(errno));
+    if (sigaction(SIGHUP, &sa, NULL) == -1)
+        printf("failed to register signal handler SIGINT: %s", strerror(errno));
+
     char myArray[] = { 0xff, 0x11, 0x22, 0xff, 0xec, 0x12, 0x00, 0x11, 0x22, 0xff, 0xec, 0x12, 0x00, 0x11, 0x22, 0xff, 0xec, 0x12,0x00, 0x11, 0x22, 0xff, 0xec, 0x12};
  
     char* tx_input_buffer = malloc(max_L2_packet_size_bytes);
@@ -696,10 +722,11 @@ int main(){
     mcs1.carrier_freq_hz = 440;
 
     struct mcs *cur_mcs = &mcs1;
-    
+
+    // put the fe buffer in a shared memory space.     
     int samples_per_symbol = cur_mcs->output_sample_rate_hz / cur_mcs->symbol_rate_hz;
     int max_L2_packet_size_samples = (max_L2_packet_size_bytes * 8 / cur_mcs->bits_per_symbol) * samples_per_symbol;
-    char* fe_input_buffer = malloc(max_L2_packet_size_samples * sizeof(float complex));
+    char* fe_input_buffer = create_shared_memory(max_L2_packet_size_samples * sizeof(float complex));
     struct circBuf fe_buf;
     fe_buf.element_size = sizeof(float complex);
     fe_buf.start = fe_input_buffer;
@@ -712,11 +739,19 @@ int main(){
     fflush(stdout);
     // write a packet of IQ samples to buffer
     tx_encode_packet(&in_buf, &mcs1, &fe_buf);
-    printf("encoded_samples: %d\n", fe_buf.count);
-    fflush(stdout);
+    
     // setup and start playing the buffer
-    start_tx_chain(&fe_buf, cur_mcs);
+    pid_t child;
+    if ((child=fork())==0){
+        start_tx_chain(&fe_buf, cur_mcs);
+    }
  
+    sleep(1);
+    x = write_buf(myArray, 24, &in_buf, 1);
+    sleep(1);
+    x = write_buf(myArray, 24, &in_buf, 1);
+    sleep(1);
+    x = write_buf(myArray, 24, &in_buf, 1);
     return 0;
 };
 
