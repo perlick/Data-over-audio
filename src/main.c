@@ -632,7 +632,7 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
 
     // write full packet to front end buffer in one shot.
     int count;
-    while ((count = write_buf(symbol_buf, num_samples, out_buf, 1)) == 0)
+    while ((count = write_buf(sample_buf, num_samples, out_buf, 1)) == 0)
         sleep(0.01);
 
     free(sample_buf);
