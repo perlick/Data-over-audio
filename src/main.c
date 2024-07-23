@@ -63,7 +63,7 @@ struct transfer_method {
     int (*transfer_loop)(snd_pcm_t *handle,
                  signed short *samples,
                  snd_pcm_channel_area_t *areas,
-                 CircBuf *iq_buf);
+                 CircBuf *iq_buf, int lo_freq);
 };
 
 /* Read len elem from circular buffer into out_buf.
@@ -79,7 +79,7 @@ int read_buf(CircBuf *me, int len, void *out_buf){
     char *typed_me = (char *) me->start;
     char *typed_out_buf = (char *) out_buf;
     for(int i=0;i<len; i=i+1){
-        memmove(&typed_out_buf[i*me->element_size], &typed_me[(i*me->element_size + me->read_idx) % me->len], me->element_size);
+        memmove(&typed_out_buf[i*me->element_size], &typed_me[(i*me->element_size + me->read_idx*me->element_size) % (me->len*me->element_size)], me->element_size);
     }
     // move the read index
     me->read_idx = (me->read_idx + len) % me->len;
@@ -106,7 +106,7 @@ int write_buf(void *in_buf, int len, CircBuf *me, int block){
     char *typed_me = (char *) me->start;
     char *typed_in_buf = (char *) in_buf;
     for(int i=0;i<len;i=i+1){
-        memmove(&typed_me[(me->write_idx + i*me->element_size)%me->len], &typed_in_buf[i*me->element_size], me->element_size);
+        memmove(&typed_me[(me->write_idx*me->element_size + i*me->element_size)%(me->len*me->element_size)], &typed_in_buf[i*me->element_size], me->element_size);
     }
     // move the write index
     me->write_idx = (me->write_idx + len) % me->len;
@@ -131,11 +131,13 @@ int intPow(int x,int n)
 static void run_front_end_calculation(const snd_pcm_channel_area_t *areas, 
               snd_pcm_uframes_t offset,
               int count, double *_phase,
-              CircBuf *iq_buf)
+              CircBuf *iq_buf,
+              int lo_freq)
 {
+    printf("Front end: lo_freq(%d), rate(%d)\n", lo_freq, rate);
     static double max_phase = 2. * M_PI;
     double phase = *_phase;
-    double step = max_phase*freq/(double)rate;
+    double step = max_phase*lo_freq/(double)rate;
     unsigned char *samples[channels];
     int steps[channels];
     unsigned int chn;
@@ -148,6 +150,7 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
     int is_float = (format == SND_PCM_FORMAT_FLOAT_LE ||
             format == SND_PCM_FORMAT_FLOAT_BE);
     float complex sample;
+    int num_read;
  
     /* verify and prepare the contents of areas */
     for (chn = 0; chn < channels; chn++) {
@@ -167,8 +170,10 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
     /* fill the channel areas */
     while (count-- > 0) {
         // read a sample from the buffer
-        // TODO this buf read is causing stack smashing
-        int num_read = read_buf(iq_buf, 1, &sample);
+        num_read = read_buf(iq_buf, 1, &sample);
+        // if there's nothing to read, simple play a random symbol. Should just idle at our carrier
+        if (num_read == 0)
+            sample = 1 + 1*I; 
 
         union {
             float f;
@@ -181,6 +186,7 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
         } else {
             // Assumes amplitudes of I and Q do not exceed -1,1
             res = creal(sample) * sin(phase) + cimag(sample) * cos(phase);
+            printf("fe calc: I(%f) * sin(%f) + Q(%f) * cos(%f) = res(%d); maxval(%d)\n", creal(sample), phase, cimag(sample), phase, res, maxval);
             res = res * maxval;
         }
         if (to_unsigned)
@@ -374,7 +380,7 @@ static int wait_for_poll(snd_pcm_t *handle, struct pollfd *ufds, unsigned int co
 static int write_and_poll_loop(snd_pcm_t *handle,
                    signed short *samples,
                    snd_pcm_channel_area_t *areas,
-                   CircBuf *iq_buf)
+                   CircBuf *iq_buf, int lo_freq)
 {
     struct pollfd *ufds;
     double phase = 0;
@@ -420,7 +426,7 @@ static int write_and_poll_loop(snd_pcm_t *handle,
         printf("Poll returned. Generating Samples.\n");
         fflush(stdout);
  
-        run_front_end_calculation(areas, 0, period_size, &phase, iq_buf);
+        run_front_end_calculation(areas, 0, period_size, &phase, iq_buf, lo_freq);
         
         printf("Done generating samples.\n");
         fflush(stdout);
@@ -548,7 +554,7 @@ void start_tx_chain(CircBuf *iq_buf, MCS *mcs){
     printf("starting transfer loop.\n");
     fflush(stdout);
  
-    err = transfer_methods[method].transfer_loop(handle, samples, areas, iq_buf);
+    err = transfer_methods[method].transfer_loop(handle, samples, areas, iq_buf, mcs->carrier_freq_hz);
     if (err < 0)
         printf("Transfer failed: %s\n", snd_strerror(err));
  
@@ -571,6 +577,7 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
     }
     int samples_per_symbol = mcs->output_sample_rate_hz / mcs->symbol_rate_hz;
     int sample_buf_len = symbol_buf_len * samples_per_symbol;
+    float complex *sample_buf = malloc(sample_buf_len);
 
     // read data from circular buffer
     int num_read = read_buf(buf, max_L2_packet_size_bytes, data_buf);
@@ -619,9 +626,17 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
     for(int i=0;i<num_symbols;i++){
         for(int j=0;j<samples_per_symbol;j++){
             sample_idx = i * samples_per_symbol + j;
-            write_buf(&symbol_buf[i], 1, out_buf, 1);
+            sample_buf[sample_idx] = symbol_buf[i];
         }
     }
+
+    // write full packet to front end buffer in one shot.
+    int count;
+    while ((count = write_buf(symbol_buf, num_samples, out_buf, 1)) == 0)
+        sleep(0.01);
+
+    free(sample_buf);
+    free(symbol_buf);
     free(data_buf);
     return;
 }
@@ -677,8 +692,9 @@ int main(){
     mcs1.symbol_list_complex[2] = -1 + I;
     mcs1.symbol_list_int[3] = 3;
     mcs1.symbol_list_complex[3] = -1 + -1*I;
-    mcs1.output_sample_rate_hz = 8e3;
-    mcs1.symbol_rate_hz = 100;
+    mcs1.output_sample_rate_hz = 1000;
+    mcs1.symbol_rate_hz = 10;
+    mcs1.carrier_freq_hz = 440;
 
     struct mcs *cur_mcs = &mcs1;
     
