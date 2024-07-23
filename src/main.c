@@ -139,7 +139,7 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
               CircBuf *iq_buf,
               int lo_freq)
 {
-    printf("Front end: lo_freq(%d), rate(%d)\n", lo_freq, rate);
+    //printf("Front end: lo_freq(%d), rate(%d)\n", lo_freq, rate);
     static double max_phase = 2. * M_PI;
     double phase = *_phase;
     double step = max_phase*lo_freq/(double)rate;
@@ -191,7 +191,7 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
         } else {
             // Assumes amplitudes of I and Q do not exceed -1,1
             res = creal(sample) * sin(phase) + cimag(sample) * cos(phase) * maxval;
-            printf("fe calc: I(%f) * sin(%f) + Q(%f) * cos(%f) * maxval(%d) = res(%d); \n", creal(sample), phase, cimag(sample), phase, maxval, res);
+            //printf("fe calc: I(%f) * sin(%f) + Q(%f) * cos(%f) * maxval(%d) = res(%d); \n", creal(sample), phase, cimag(sample), phase, maxval, res);
         }
         if (to_unsigned)
             res ^= 1U << (format_bits - 1);
@@ -737,30 +737,33 @@ int main(){
     int samples_per_symbol = cur_mcs->output_sample_rate_hz / cur_mcs->symbol_rate_hz;
     int max_L2_packet_size_samples = (max_L2_packet_size_bytes * 8 / cur_mcs->bits_per_symbol) * samples_per_symbol;
     char* fe_input_buffer = create_shared_memory(max_L2_packet_size_samples * sizeof(float complex));
-    struct circBuf fe_buf;
-    fe_buf.element_size = sizeof(float complex);
-    fe_buf.start = fe_input_buffer;
-    fe_buf.len = max_L2_packet_size_samples;
-    fe_buf.read_idx = 0;
-    fe_buf.write_idx = 0;
-    fe_buf.count = 0;
+    struct circBuf *fe_buf = create_shared_memory(sizeof(struct circBuf));
+    fe_buf->element_size = sizeof(float complex);
+    fe_buf->start = fe_input_buffer;
+    fe_buf->len = max_L2_packet_size_samples;
+    fe_buf->read_idx = 0;
+    fe_buf->write_idx = 0;
+    fe_buf->count = 0;
    
     printf("Initialized Buffers.\n");
     fflush(stdout);
     // write a packet of IQ samples to buffer
-    tx_encode_packet(&in_buf, &mcs1, &fe_buf);
+    tx_encode_packet(&in_buf, &mcs1, fe_buf);
     
     // setup and start playing the buffer
     if ((fe_child=fork())==0){
-        start_tx_chain(&fe_buf, cur_mcs);
+        start_tx_chain(fe_buf, cur_mcs);
     }
  
     sleep(1);
     x = write_buf(myArray, 24, &in_buf, 1);
+    tx_encode_packet(&in_buf, &mcs1, fe_buf);
     sleep(1);
     x = write_buf(myArray, 24, &in_buf, 1);
+    tx_encode_packet(&in_buf, &mcs1, fe_buf);
     sleep(1);
     x = write_buf(myArray, 24, &in_buf, 1);
+    tx_encode_packet(&in_buf, &mcs1, fe_buf);
     while(wait(NULL) != -1 || errno == EINTR);
 };
 
