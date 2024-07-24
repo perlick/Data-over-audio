@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sched.h>
 #include <errno.h>
 #include <getopt.h>
@@ -12,6 +11,7 @@
 #include <sys/mman.h> 
 #include <signal.h>
 #include <sys/wait.h>
+#include "circ_buf.h"
 
 #ifndef ESTRPIPE
 #define ESTRPIPE ESPIPE
@@ -50,18 +50,6 @@ struct mcs {
 };
 typedef struct mcs MCS;
 
-struct circBuf {
-    void *start; // pointer to start index
-    size_t element_size; // size of each element in bytes
-    int len; // total size in elements
-    int write_idx; // first free elem index
-    int read_idx; // first used elem index
-    int count; // number of read-able elements in the buf
-};
-typedef struct circBuf CircBuf ;
-static int write_buf(void *in_buf, int len, CircBuf *me, int block);
-static int read_buf(CircBuf *me, int len, void *out_buf);
-
 struct transfer_method {
     const char *name;
     snd_pcm_access_t access;
@@ -70,56 +58,6 @@ struct transfer_method {
                  snd_pcm_channel_area_t *areas,
                  CircBuf *iq_buf, int lo_freq);
 };
-
-/* Read len elem from circular buffer into out_buf.
-
-returns the number of bytes read.
-*/
-int read_buf(CircBuf *me, int len, void *out_buf){
-    // check if there's enough elems to read
-    if(len > me->count){
-        len = me->count;
-    }
-    // do the reading
-    char *typed_me = (char *) me->start;
-    char *typed_out_buf = (char *) out_buf;
-    for(int i=0;i<len; i=i+1){
-        memmove(&typed_out_buf[i*me->element_size], &typed_me[(i*me->element_size + me->read_idx*me->element_size) % (me->len*me->element_size)], me->element_size);
-    }
-    // move the read index
-    me->read_idx = (me->read_idx + len) % me->len;
-    // decrement the count
-    me->count = me->count - len;
-    return len;
-}
-
-/* Write len bytes from buffer into out_buf.
-
-returns the number of bytes written.
-*/
-int write_buf(void *in_buf, int len, CircBuf *me, int block){
-    // Check how many elements can be written
-    int free = me->len - me->count;
-    // Set len to be written
-    if(free < len){
-        if (block)
-            return 0;
-        else
-            len = free;
-    }
-    // Do the writing
-    char *typed_me = (char *) me->start;
-    char *typed_in_buf = (char *) in_buf;
-    for(int i=0;i<len;i=i+1){
-        memmove(&typed_me[(me->write_idx*me->element_size + i*me->element_size)%(me->len*me->element_size)], &typed_in_buf[i*me->element_size], me->element_size);
-    }
-    // move the write index
-    me->write_idx = (me->write_idx + len) % me->len;
-    // update count
-    me->count = me->count + len;
-    printf("buf_size: %d \n", me->count);
-    return len;
-}
 
 int intPow(int x,int n)
 {
