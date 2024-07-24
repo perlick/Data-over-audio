@@ -1,5 +1,6 @@
 #include "circ_buf.h"
 #include <string.h>
+#include <stdio.h>
 
 /* Read len elem from circular buffer into out_buf.
 
@@ -42,6 +43,9 @@ int write_buf(void *in_buf, int len, CircBuf *me, int block){
         memmove(&typed_me[(me->write_idx*me->element_size + i*me->element_size)%(me->len*me->element_size)],
                 &typed_in_buf[i*me->element_size],
                 me->element_size);
+    }
+    if(me->stream != NULL){
+        fwrite(in_buf, me->element_size, (size_t) len, me->stream);
     }
     
     me->write_idx = (me->write_idx + len) % me->len;

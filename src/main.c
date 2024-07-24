@@ -70,7 +70,6 @@ int intPow(int x,int n)
     return(number);
 }
 
-
 static void run_front_end_calculation(const snd_pcm_channel_area_t *areas, 
               snd_pcm_uframes_t offset,
               int count, double *_phase,
@@ -611,8 +610,8 @@ void* create_shared_memory(size_t size){
 }
 
 static void handler(int signum){
-    int err;
     if (fe_child != 0){
+        /* kill children */
         kill(fe_child, SIGHUP);
         kill(fe_child, SIGINT);
         kill(fe_child, SIGTERM);
@@ -693,7 +692,8 @@ int main(){
     fe_buf->read_idx = 0;
     fe_buf->write_idx = 0;
     fe_buf->count = 0;
-   
+    //fe_buf->stream = fopen("fe_stream.fc32", "w");
+    fe_buf->stream = NULL;
     printf("Initialized Buffers.\n");
     fflush(stdout);
     // write a packet of IQ samples to buffer
