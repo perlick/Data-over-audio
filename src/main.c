@@ -11,7 +11,10 @@
 #include <sys/mman.h> 
 #include <signal.h>
 #include <sys/wait.h>
+#include <stdint.h>
+#include <fftw3.h>
 #include "circ_buf.h"
+#include "filter.h"
 
 #ifndef ESTRPIPE
 #define ESTRPIPE ESPIPE
@@ -32,8 +35,6 @@ static int resample = 0;                /* enable alsa-lib resampling */
 static int period_event = 1;                /* produce poll event after each period */
 static int max_L2_packet_size_bytes = 1500;
 
-pid_t fe_child;
- 
 static snd_pcm_sframes_t buffer_size;
 static snd_pcm_sframes_t period_size;
 static snd_output_t *output = NULL;
@@ -47,6 +48,11 @@ struct mcs {
     int output_sample_rate_hz; // rate of the samples being sent to hardware device
     int symbol_rate_hz; // Rate of symbols being encoded into signal
     int carrier_freq_hz; // Tune Lo to this freq
+    int input_sample_rate_hz; 
+    int order; // Course frequency estimate multiplies by this number before taking FFT 
+    float mnm_aggression;
+    Filter *tx_filter;
+    Filter *rx_filter;
 };
 typedef struct mcs MCS;
 
@@ -70,11 +76,12 @@ int intPow(int x,int n)
     return(number);
 }
 
+
 static void run_front_end_calculation(const snd_pcm_channel_area_t *areas, 
               snd_pcm_uframes_t offset,
               int count, double *_phase,
               CircBuf *iq_buf,
-              int lo_freq)
+              int lo_freq, FILE *file)
 {
     //printf("Front end: lo_freq(%d), rate(%d)\n", lo_freq, rate);
     static double max_phase = 2. * M_PI;
@@ -113,9 +120,9 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
     while (count-- > 0) {
         // read a sample from the buffer
         num_read = read_buf(iq_buf, 1, &sample);
-        // if there's nothing to read, simple play a random symbol. Should just idle at our carrier
+        // if there's nothing to read, play the carrier.
         if (num_read == 0)
-            sample = 1 + 1*I; 
+            sample = 1 + 0*I; 
 
         union {
             float f;
@@ -127,7 +134,8 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
             res = fval.i;
         } else {
             // Assumes amplitudes of I and Q do not exceed -1,1
-            res = creal(sample) * sin(phase) + cimag(sample) * cos(phase) * maxval;
+            res = (creal(sample) * sin(phase) + cimag(sample) * cos(phase)) * maxval;
+            fwrite(&res, sizeof(int), 1, file);
             //printf("fe calc: I(%f) * sin(%f) + Q(%f) * cos(%f) * maxval(%d) = res(%d); \n", creal(sample), phase, cimag(sample), phase, maxval, res);
         }
         if (to_unsigned)
@@ -327,6 +335,8 @@ static int write_and_poll_loop(snd_pcm_t *handle,
     double phase = 0;
     signed short *ptr;
     int err, count, cptr, init;
+    FILE *plbk_raw = fopen("plbk_raw.s16", "w");
+    //FILE *plbk_raw = NULL;
     
     count = snd_pcm_poll_descriptors_count (handle);
     if (count <= 0) {
@@ -365,7 +375,7 @@ static int write_and_poll_loop(snd_pcm_t *handle,
         }
     
  
-        run_front_end_calculation(areas, 0, period_size, &phase, iq_buf, lo_freq);
+        run_front_end_calculation(areas, 0, period_size, &phase, iq_buf, lo_freq, plbk_raw);
         
         ptr = samples;
         cptr = period_size;
@@ -512,7 +522,7 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
     	printf("output_sample_rate_hz must be divisible by symbol_rate_hz!");
         exit(1);
     }
-    int samples_per_symbol = mcs->output_sample_rate_hz / mcs->symbol_rate_hz;
+    int samples_per_symbol = mcs->input_sample_rate_hz / mcs->symbol_rate_hz;
     int sample_buf_len = symbol_buf_len * samples_per_symbol;
     float complex *sample_buf = malloc(sample_buf_len);
 
@@ -561,43 +571,217 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
     int num_samples;
     num_samples = num_symbols * samples_per_symbol;
     for(int i=0;i<num_symbols;i++){
-        for(int j=0;j<samples_per_symbol;j++){
-            sample_idx = i * samples_per_symbol + j;
-            sample_buf[sample_idx] = symbol_buf[i];
-        }
+        sample_buf[i*samples_per_symbol] = symbol_buf[i];
     }
+    FILE *plbk_unflt = fopen("plbk_unflt.fc32", "w");
+    fwrite(sample_buf, sizeof(float complex), num_samples, plbk_unflt);
+    fclose(plbk_unflt);
+
+    int len_filt_buf;
+    float complex *filt_buf = convolve(sample_buf, num_samples, mcs->tx_filter, &len_filt_buf);
 
     // write full packet to front end buffer in one shot.
     int count;
-    while ((count = write_buf(sample_buf, num_samples, out_buf, 1)) == 0)
+    printf("len_sample_buf: %d\n", num_samples);
+    fflush(stdout);
+    while ((count = write_buf(filt_buf, len_filt_buf, out_buf, 1)) == 0)
         sleep(0.01);
 
     free(sample_buf);
     free(symbol_buf);
     free(data_buf);
-    printf("encoded_samples: %d\n", count);
+    printf("finished encoding samples: %d\n", len_filt_buf);
     fflush(stdout);
     return;
 }
 
-void start_receive(){
+void start_rx_chain(MCS *mcs){
     // read data from input buffer
+    int i;
+    int err;
+    int buf_size = 1024;
+    int16_t buf[buf_size];
+    int rate = mcs->input_sample_rate_hz;
+    int lo_freq = mcs->carrier_freq_hz;
+    snd_pcm_t *capture_handle;
+    snd_pcm_hw_params_t *hw_params;
 
-    // do SDR part. split -> Downconvert
+    if ((err = snd_pcm_open(&capture_handle, device, SND_PCM_STREAM_CAPTURE, 0)) < 0) {
+        fprintf (stderr, "cannot open audio device %s (%s)\n", 
+             device, 
+             snd_strerror(err));
+        exit(1);
+    }
+       
+    if ((err = snd_pcm_hw_params_malloc (&hw_params)) < 0) {
+        fprintf (stderr, "cannot allocate hardware parameter structure (%s)\n",
+             snd_strerror(err));
+        exit(1);
+    }
+             
+    if ((err = snd_pcm_hw_params_any(capture_handle, hw_params)) < 0) {
+        fprintf (stderr, "cannot initialize hardware parameter structure (%s)\n",
+             snd_strerror(err));
+        exit(1);
+    }
 
-    // matched filter
+    if ((err = snd_pcm_hw_params_set_access(capture_handle, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED)) < 0) {
+        fprintf (stderr, "cannot set access type (%s)\n",
+             snd_strerror(err));
+        exit(1);
+    }
 
-    // course freq sync
+    if ((err = snd_pcm_hw_params_set_format(capture_handle, hw_params, format)) < 0) {
+        fprintf (stderr, "cannot set sample format (%s)\n",
+             snd_strerror(err));
+        exit(1);
+    }
 
-    // time sync (decimate)
+    if ((err = snd_pcm_hw_params_set_rate_near(capture_handle, hw_params, &rate, 0)) < 0) {
+        fprintf (stderr, "cannot set sample rate (%s)\n",
+             snd_strerror(err));
+        exit(1);
+    }
 
-    // fine freq sync
+    if ((err = snd_pcm_hw_params_set_channels(capture_handle, hw_params, 1)) < 0) {
+        fprintf (stderr, "cannot set channel count (%s)\n",
+             snd_strerror(err));
+        exit(1);
+    }
 
-    // demodulate
+    if ((err = snd_pcm_hw_params(capture_handle, hw_params)) < 0) {
+        fprintf (stderr, "cannot set parameters (%s)\n",
+             snd_strerror(err));
+        exit(1);
+    }
 
-    // frame detection
+    snd_pcm_hw_params_free(hw_params);
 
-    // channel decode
+    if ((err = snd_pcm_prepare(capture_handle)) < 0) {
+        fprintf (stderr, "cannot prepare audio interface for use (%s)\n",
+             snd_strerror(err));
+        exit(1);
+    }
+
+    FILE *file_raw;
+    file_raw = fopen("cap_raw.s16", "w");
+    FILE *file_iq;
+    file_iq = fopen("cap_iq.fc32", "w");
+    FILE *file_course;
+    file_course = fopen("cap_course.fc32", "w");
+    FILE *file_mnm;
+    file_mnm = fopen("cap_mnm.fc32", "w");
+    //printf("Front end: lo_freq(%d), rate(%d)\n", lo_freq, rate);
+    static double max_phase = 2. * M_PI;
+    double phase = 0;
+    double step = max_phase*lo_freq/(double)rate;
+    int format_bits = snd_pcm_format_width(format);
+    unsigned int maxval = (1 << (format_bits - 1)) - 1;
+    int bps = format_bits / 8;  /* bytes per sample */
+    int phys_bps = snd_pcm_format_physical_width(format) / 8;
+    int big_endian = snd_pcm_format_big_endian(format) == 1;
+    int to_unsigned = snd_pcm_format_unsigned(format) == 1;
+    int is_float = (format == SND_PCM_FORMAT_FLOAT_LE ||
+            format == SND_PCM_FORMAT_FLOAT_BE);
+    float complex sample_buf[buf_size];
+    double complex freq_est_in_buf[buf_size];
+    float scaled;
+    int order = mcs->order;
+    
+    fftw_complex fft_buf[buf_size];
+    fftw_plan plan = fftw_plan_dft_1d(buf_size, freq_est_in_buf, fft_buf, FFTW_FORWARD, FFTW_MEASURE);
+    int max;
+    float freq_offset_est_hz;
+    float mu = 0;
+    float complex out[buf_size + 10];
+    float complex out_rail[buf_size + 10];
+    int i_in, i_out;
+    float mm_val, real, imag;
+    float complex x, y;
+    int samples_per_symbol = mcs->output_sample_rate_hz / mcs->symbol_rate_hz;
+    while (1) {
+        /* Get Raw Samples */
+        if ((err = snd_pcm_readi(capture_handle, buf, buf_size)) != buf_size) {
+            fprintf (stderr, "read from audio interface failed (%s)\n",
+                 snd_strerror(err));
+            exit(1);
+        }
+        fwrite(buf, sizeof(int16_t), buf_size, file_raw);
+ 
+        /* RF Front End Simulation */
+        for (int i=0;i<buf_size;i++){
+            scaled = (float) buf[i] / maxval; 
+            sample_buf[i] = scaled * sin(phase) + scaled * cos(phase) * I;
+            phase += step;
+            if (phase >= max_phase)
+                phase -= max_phase;
+        }
+        fwrite(sample_buf, sizeof(float complex), buf_size, file_iq);
+
+        /* Matched Filter */
+        noop
+
+        /* Course Freq Sync */
+        for (int i=0;i<buf_size;i++){
+            freq_est_in_buf[i] = pow(((double) sample_buf[i]), (double) order);
+        }
+        fftw_execute(plan);
+        max = 0;
+        for (int i=1;i<buf_size;i++){
+           if (cabs(fft_buf[i]) > cabs(fft_buf[max]))
+               max = i;
+        }
+        max = (max + buf_size/2)%buf_size; // fftshift
+        freq_offset_est_hz = (-1*(float)mcs->input_sample_rate_hz/2) + ((float)mcs->input_sample_rate_hz / buf_size) * max; 
+        printf("Frequency offset estimate: %f\n", freq_offset_est_hz/2);
+        float course_adj_phase = 0;
+        float t;
+        for (int i=0;i<buf_size;i++){
+            t = i/mcs->input_sample_rate_hz;
+            sample_buf[i] = sample_buf[i] * exp(-1*I*2*M_PI*max*t/2);
+        }
+        fwrite(sample_buf, sizeof(float complex), buf_size, file_course);
+
+        /* Time Sync */
+        i_in = 0;
+        i_out = 2; 
+        while (i_out < buf_size && i_in+16 < buf_size){
+            out[i_out] = sample_buf[i_in + (int)mu];
+            real = 0;
+            if (creal(out[i_out]) > 0)
+                real = 1;
+            imag = 0;
+            if (cimag(out[i_out]) > 0)
+                imag = 1;
+            out_rail[i_out] = real + imag*I;
+            x = (out_rail[i_out] - out_rail[i_out-2]) * conj(out[i_out-1]);
+            y = (out[i_out] - out[i_out-2]) * conj(out_rail[i_out-1]);
+            mm_val = creal(y - x);
+            mu += samples_per_symbol + mcs->mnm_aggression*mm_val;
+            i_in += (int) trunc(mu);
+            mu = mu - trunc(mu);
+            i_out += 1;
+        }
+        fwrite(&out[2], sizeof(float complex), i_out-2, file_mnm);
+
+        // fine freq sync
+
+        // demodulate
+
+        // frame detection
+
+        // channel decode
+    }
+    fclose(file_raw);
+    fclose(file_iq);
+    fclose(file_course);
+    fclose(file_mnm);
+
+    fftw_destroy_plan(plan);
+    fftw_cleanup();
+    snd_pcm_close (capture_handle);
+    exit(0);
+
 
     return;
 }
@@ -610,12 +794,6 @@ void* create_shared_memory(size_t size){
 }
 
 static void handler(int signum){
-    if (fe_child != 0){
-        /* kill children */
-        kill(fe_child, SIGHUP);
-        kill(fe_child, SIGINT);
-        kill(fe_child, SIGTERM);
-    }
     while(wait(NULL) != -1 || errno == EINTR);
     exit(1);
 }
@@ -645,7 +823,7 @@ int main(){
     in_buf.count = 0;
 
     int x = write_buf(myArray, 24, &in_buf, 1);
-    
+ 
     /* bpsk */
     struct mcs mcs0;
     mcs0.channel_coding = 0;
@@ -660,6 +838,11 @@ int main(){
     mcs0.output_sample_rate_hz = 8000;
     mcs0.symbol_rate_hz = 100;
     mcs0.carrier_freq_hz = 440;
+    mcs0.input_sample_rate_hz = 8000;
+    mcs0.order = 2;
+    mcs0.mnm_aggression = 0.3;
+    mcs0.tx_filter = create_filter_rrc1(12.625, 0.35, (float) mcs0.output_sample_rate_hz / mcs0.symbol_rate_hz);
+    mcs0.rx_filter = create_filter_rrc1(12.625, 0.35, (float) mcs0.input_sample_rate_hz / mcs0.symbol_rate_hz);
 
     struct mcs mcs1;
     mcs1.channel_coding = 0;
@@ -668,22 +851,27 @@ int main(){
     mcs1.symbol_list_int = malloc(mcs1.num_symbols);
     mcs1.symbol_list_complex = malloc(mcs1.num_symbols * sizeof(complex float));
     mcs1.symbol_list_int[0] = 0;
-    mcs1.symbol_list_complex[0] = 1 + I;
+    mcs1.symbol_list_complex[0] = 1 + 0*I;
     mcs1.symbol_list_int[1] = 1;
-    mcs1.symbol_list_complex[1] = 1 + -1*I;
+    mcs1.symbol_list_complex[1] = -1 + 0*I;
     mcs1.symbol_list_int[2] = 2;
-    mcs1.symbol_list_complex[2] = -1 + I;
+    mcs1.symbol_list_complex[2] = 0 + 1*I;
     mcs1.symbol_list_int[3] = 3;
-    mcs1.symbol_list_complex[3] = -1 + -1*I;
+    mcs1.symbol_list_complex[3] = 0 + -1*I;
     mcs1.output_sample_rate_hz = 8000;
     mcs1.symbol_rate_hz = 100;
     mcs1.carrier_freq_hz = 440;
+    mcs1.input_sample_rate_hz = 8000;
+    mcs1.order = 4;
+    mcs1.mnm_aggression = 0.3;
+    mcs1.tx_filter = create_filter_rrc1(12.625, 0.35, (float) mcs1.output_sample_rate_hz / mcs1.symbol_rate_hz);
+    mcs1.rx_filter = create_filter_rrc1(12.625, 0.35, (float) mcs1.input_sample_rate_hz / mcs1.symbol_rate_hz);
 
-    struct mcs *cur_mcs = &mcs1;
+    struct mcs *cur_mcs = &mcs0;
 
-    // put the fe buffer in a shared memory space.     
+    // put the fe buffer in a shared memory space. 
     int samples_per_symbol = cur_mcs->output_sample_rate_hz / cur_mcs->symbol_rate_hz;
-    int max_L2_packet_size_samples = (max_L2_packet_size_bytes * 8 / cur_mcs->bits_per_symbol) * samples_per_symbol;
+    int max_L2_packet_size_samples = (max_L2_packet_size_bytes * 8 / cur_mcs->bits_per_symbol) * samples_per_symbol + cur_mcs->tx_filter->num_taps + 1; 
     char* fe_input_buffer = create_shared_memory(max_L2_packet_size_samples * sizeof(float complex));
     struct circBuf *fe_buf = create_shared_memory(sizeof(struct circBuf));
     fe_buf->element_size = sizeof(float complex);
@@ -692,15 +880,20 @@ int main(){
     fe_buf->read_idx = 0;
     fe_buf->write_idx = 0;
     fe_buf->count = 0;
-    //fe_buf->stream = fopen("fe_stream.fc32", "w");
-    fe_buf->stream = NULL;
-    printf("Initialized Buffers.\n");
-    fflush(stdout);
+    fe_buf->stream = fopen("plbk_iq.fc32", "w");
+    //fe_buf->stream = NULL;
+
+    /* start listening */
+    pid_t rx_fe_child;
+    if ((rx_fe_child=fork())==0){
+        start_rx_chain(cur_mcs);
+    }
+
     // write a packet of IQ samples to buffer
     tx_encode_packet(&in_buf, &mcs1, fe_buf);
     
-    // setup and start playing the buffer
-    if ((fe_child=fork())==0){
+    pid_t tx_fe_child;
+    if ((tx_fe_child=fork())==0){
         start_tx_chain(fe_buf, cur_mcs);
     }
  
