@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <complex.h>
 
+#include <string.h>
+
 Filter *create_filter_rrc1(float symbol_len, float beta, float Ts){
     int num_taps = (int) (symbol_len * Ts); 
     if (num_taps%2==1)
@@ -67,6 +69,26 @@ Filter *create_filter_rc(int num_taps, float beta, float Ts){
     //fwrite(filt->taps, sizeof(float), num_taps, filter_cap);
     //fclose(filter_cap);
     return filt;
+}
+
+float complex *convolve_valid(float complex *h, int lenH, Filter *filter, int* lenY){
+    int lenX = filter->num_taps;
+    int nconv = fmax(lenH,lenX) - fmin(lenH,lenX) + 1;
+    *lenY = nconv;
+    int i,j,h_start,x_start,x_end;
+
+    float complex *y = calloc(nconv, sizeof(float complex));
+    memset(y, 0, nconv*sizeof(float complex));
+
+    for (i=0; i<nconv; i++){
+        x_start = 0;
+        x_end = lenX;
+        h_start = i; 
+        for(j=x_start; j<x_end; j++){
+              y[i] += h[h_start++]*filter->taps[j];
+        }
+    }
+    return y;
 }
 
 float complex *convolve(float complex *h, int lenH, Filter *filter, int* lenY){
