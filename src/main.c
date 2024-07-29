@@ -599,7 +599,7 @@ void start_rx_chain(MCS *mcs){
     // read data from input buffer
     int i;
     int err;
-    int buf_size = 1024;
+    int buf_size = 2048;
     int16_t buf[buf_size];
     int rate = mcs->input_sample_rate_hz;
     int lo_freq = mcs->carrier_freq_hz;
@@ -663,14 +663,11 @@ void start_rx_chain(MCS *mcs){
         exit(1);
     }
 
-    FILE *file_raw;
-    file_raw = fopen("cap_raw.s16", "w");
-    FILE *file_iq;
-    file_iq = fopen("cap_iq.fc32", "w");
-    FILE *file_course;
-    file_course = fopen("cap_course.fc32", "w");
-    FILE *file_mnm;
-    file_mnm = fopen("cap_mnm.fc32", "w");
+    FILE *file_raw = fopen("cap_raw.s16", "w");
+    FILE *file_flt = fopen("cap_flt.fc32", "w");
+    FILE *file_iq = fopen("cap_iq.fc32", "w");
+    FILE *file_course = fopen("cap_course.fc32", "w");
+    FILE *file_mnm = fopen("cap_mnm.fc32", "w");
     //printf("Front end: lo_freq(%d), rate(%d)\n", lo_freq, rate);
     static double max_phase = 2. * M_PI;
     double phase = 0;
@@ -684,10 +681,13 @@ void start_rx_chain(MCS *mcs){
     int is_float = (format == SND_PCM_FORMAT_FLOAT_LE ||
             format == SND_PCM_FORMAT_FLOAT_BE);
     float complex sample_buf[buf_size];
+    int filt_in_buf_size = buf_size + mcs->rx_filter->num_taps - 1;
+    float complex filt_in_buf[filt_in_buf_size];
+    memset(filt_in_buf, 0, sizeof(float complex)*filt_in_buf_size);
+    float complex *filt_out_buf;
     double complex freq_est_in_buf[buf_size];
     float scaled;
     int order = mcs->order;
-    
     fftw_complex fft_buf[buf_size];
     fftw_plan plan = fftw_plan_dft_1d(buf_size, freq_est_in_buf, fft_buf, FFTW_FORWARD, FFTW_MEASURE);
     int max;
@@ -719,11 +719,16 @@ void start_rx_chain(MCS *mcs){
         fwrite(sample_buf, sizeof(float complex), buf_size, file_iq);
 
         /* Matched Filter */
-        noop
+        int len_filt_out_buf;
+        memcpy(&filt_in_buf, &filt_in_buf[buf_size], mcs->rx_filter->num_taps*sizeof(float complex));
+        memcpy(&filt_in_buf[i + mcs->rx_filter->num_taps-1], sample_buf, buf_size*sizeof(float complex));
+        filt_out_buf = convolve_valid(filt_in_buf, filt_in_buf_size, mcs->rx_filter, &len_filt_out_buf);
+        assert(buf_size == len_filt_out_buf);
+        fwrite(filt_out_buf, sizeof(float complex), buf_size, file_flt);
 
         /* Course Freq Sync */
         for (int i=0;i<buf_size;i++){
-            freq_est_in_buf[i] = pow(((double) sample_buf[i]), (double) order);
+            freq_est_in_buf[i] = pow(((double) filt_out_buf[i]), (double) order);
         }
         fftw_execute(plan);
         max = 0;
@@ -773,6 +778,7 @@ void start_rx_chain(MCS *mcs){
         // channel decode
     }
     fclose(file_raw);
+    fclose(file_flt);
     fclose(file_iq);
     fclose(file_course);
     fclose(file_mnm);
@@ -836,7 +842,7 @@ int main(){
     mcs0.symbol_list_int[1] = 1;
     mcs0.symbol_list_complex[1] = -1 + 0*I;
     mcs0.output_sample_rate_hz = 8000;
-    mcs0.symbol_rate_hz = 100;
+    mcs0.symbol_rate_hz = 1000;
     mcs0.carrier_freq_hz = 440;
     mcs0.input_sample_rate_hz = 8000;
     mcs0.order = 2;
