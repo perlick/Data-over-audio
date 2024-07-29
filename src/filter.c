@@ -21,18 +21,25 @@ Filter *create_filter_rrc(int num_taps, float beta, float Ts){
     filt->taps = calloc(num_taps, sizeof(float));
 
     float t;
-    float tap, x;
+    float tap, x, max, scale;
+    max = 0;
     for (int i=0;i<num_taps;i++){
         t = i - (num_taps-1)/2;
         if (t==0){
-            tap = 1;
-        }else if(t==abs(Ts/(4*beta))){
-            tap = beta/(Ts*sqrt(2)) * ((1+(2/M_PI))*sin(M_PI/(4*beta)) + (1+(2/M_PI))*cos(M_PI/(4*beta)));
+            tap = (1/Ts) * (1+beta*((4/M_PI)-1));
+        //}else if(t==abs(Ts/(4*beta))){
+        //    tap = 0; //beta/(Ts*sqrt(2)) * ((1+(2/M_PI))*sin(M_PI/(4*beta)) + (1+(2/M_PI))*cos(M_PI/(4*beta)));
         } else {
             tap = (1/Ts) * (sin(M_PI*(t/Ts)*(1-beta)) + 4*beta*(t/Ts)*cos(M_PI*(t/Ts)*(1+beta))) / (M_PI*(t/Ts)*(1-(4*beta*(t/Ts))*(4*beta*(t/Ts))));
         }
         filt->taps[i] = tap;
+        if(fabs(tap) > max)
+            max = fabs(tap);
     }
+    scale = 0.75/max;
+    for (int i=0;i<num_taps;i++)
+        filt->taps[i] = filt->taps[i] * scale; 
+
     FILE *filter_cap = fopen("filter.f32", "w");
     fwrite(filt->taps, sizeof(float), num_taps, filter_cap);
     fclose(filter_cap);

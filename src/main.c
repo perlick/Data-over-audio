@@ -128,14 +128,14 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
             float f;
             int i;
         } fval;
-        int res, i;
+        short res, i;
         if (is_float) {
             fval.f = creal(sample) * sin(phase) + cimag(sample) * cos(phase);
             res = fval.i;
         } else {
             // Assumes amplitudes of I and Q do not exceed -1,1
             res = (creal(sample) * sin(phase) + cimag(sample) * cos(phase)) * maxval;
-            fwrite(&res, sizeof(int), 1, file);
+            fwrite(&res, sizeof(short), 1, file);
             //printf("fe calc: I(%f) * sin(%f) + Q(%f) * cos(%f) * maxval(%d) = res(%d); \n", creal(sample), phase, cimag(sample), phase, maxval, res);
         }
         if (to_unsigned)
@@ -842,7 +842,7 @@ int main(){
     mcs0.symbol_list_int[1] = 1;
     mcs0.symbol_list_complex[1] = -1 + 0*I;
     mcs0.output_sample_rate_hz = 8000;
-    mcs0.symbol_rate_hz = 1000;
+    mcs0.symbol_rate_hz = 100;
     mcs0.carrier_freq_hz = 440;
     mcs0.input_sample_rate_hz = 8000;
     mcs0.order = 2;
