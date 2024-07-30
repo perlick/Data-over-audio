@@ -76,7 +76,6 @@ int intPow(int x,int n)
     return(number);
 }
 
-
 static void run_front_end_calculation(const snd_pcm_channel_area_t *areas, 
               snd_pcm_uframes_t offset,
               int count, double *_phase,
@@ -129,12 +128,16 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
             int i;
         } fval;
         short res, i;
+        float inter;
         if (is_float) {
             fval.f = creal(sample) * sin(phase) + cimag(sample) * cos(phase);
             res = fval.i;
         } else {
             // Assumes amplitudes of I and Q do not exceed -1,1
-            res = (creal(sample) * sin(phase) + cimag(sample) * cos(phase)) * maxval;
+            inter = creal(sample) * sin(phase) + cimag(sample) * cos(phase);
+            inter = fmin(inter, 1);
+            inter = fmax(inter, -1);
+            res = inter * maxval;
             fwrite(&res, sizeof(short), 1, file);
             //printf("fe calc: I(%f) * sin(%f) + Q(%f) * cos(%f) * maxval(%d) = res(%d); \n", creal(sample), phase, cimag(sample), phase, maxval, res);
         }
@@ -562,7 +565,7 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
                 break;
             }
         }
-        //printf("symbol %d: %f + i%f\n", i, creal(symbol_buf[i]), cimag(symbol_buf[i]));
+        printf("symbol %d: %f + i%f\n", i, creal(symbol_buf[i]), cimag(symbol_buf[i]));
     }
 
     // do pulse shaping with matched filter. upscaling by samples per symbol
@@ -573,9 +576,9 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
     for(int i=0;i<num_symbols;i++){
         sample_buf[i*samples_per_symbol] = symbol_buf[i];
     }
-    FILE *plbk_unflt = fopen("plbk_unflt.fc32", "w");
-    fwrite(sample_buf, sizeof(float complex), num_samples, plbk_unflt);
-    fclose(plbk_unflt);
+    FILE *plbk_sym = fopen("plbk_sym.fc32", "w");
+    fwrite(sample_buf, sizeof(float complex), num_samples, plbk_sym);
+    fclose(plbk_sym);
 
     int len_filt_buf;
     float complex *filt_buf = convolve(sample_buf, num_samples, mcs->tx_filter, &len_filt_buf);
@@ -666,6 +669,7 @@ void start_rx_chain(MCS *mcs){
     FILE *file_raw = fopen("cap_raw.s16", "w");
     FILE *file_flt = fopen("cap_flt.fc32", "w");
     FILE *file_iq = fopen("cap_iq.fc32", "w");
+    FILE *file_course_fft = fopen("cap_course.fft", "w");
     FILE *file_course = fopen("cap_course.fc32", "w");
     FILE *file_mnm = fopen("cap_mnm.fc32", "w");
     //printf("Front end: lo_freq(%d), rate(%d)\n", lo_freq, rate);
@@ -721,16 +725,18 @@ void start_rx_chain(MCS *mcs){
         /* Matched Filter */
         int len_filt_out_buf;
         memcpy(&filt_in_buf, &filt_in_buf[buf_size], mcs->rx_filter->num_taps*sizeof(float complex));
-        memcpy(&filt_in_buf[i + mcs->rx_filter->num_taps-1], sample_buf, buf_size*sizeof(float complex));
+        memcpy(&filt_in_buf[mcs->rx_filter->num_taps-1], sample_buf, buf_size*sizeof(float complex));
         filt_out_buf = convolve_valid(filt_in_buf, filt_in_buf_size, mcs->rx_filter, &len_filt_out_buf);
         assert(buf_size == len_filt_out_buf);
         fwrite(filt_out_buf, sizeof(float complex), buf_size, file_flt);
 
         /* Course Freq Sync */
         for (int i=0;i<buf_size;i++){
-            freq_est_in_buf[i] = pow(((double) filt_out_buf[i]), (double) order);
+            freq_est_in_buf[i] = (double complex) cpow(filt_out_buf[i], order); 
         }
         fftw_execute(plan);
+        rewind(file_course_fft);
+        fwrite(fft_buf, sizeof(double complex), buf_size, file_course_fft);
         max = 0;
         for (int i=1;i<buf_size;i++){
            if (cabs(fft_buf[i]) > cabs(fft_buf[max]))
@@ -743,7 +749,7 @@ void start_rx_chain(MCS *mcs){
         float t;
         for (int i=0;i<buf_size;i++){
             t = i/mcs->input_sample_rate_hz;
-            sample_buf[i] = sample_buf[i] * exp(-1*I*2*M_PI*max*t/2);
+            sample_buf[i] = sample_buf[i] * exp(-1*I*2*M_PI*freq_offset_est_hz*t/2);
         }
         fwrite(sample_buf, sizeof(float complex), buf_size, file_course);
 
@@ -780,6 +786,7 @@ void start_rx_chain(MCS *mcs){
     fclose(file_raw);
     fclose(file_flt);
     fclose(file_iq);
+    fclose(file_course_fft);
     fclose(file_course);
     fclose(file_mnm);
 
@@ -896,7 +903,7 @@ int main(){
     }
 
     // write a packet of IQ samples to buffer
-    tx_encode_packet(&in_buf, &mcs1, fe_buf);
+    tx_encode_packet(&in_buf, cur_mcs, fe_buf);
     
     pid_t tx_fe_child;
     if ((tx_fe_child=fork())==0){

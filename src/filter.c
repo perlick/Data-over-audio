@@ -36,7 +36,7 @@ Filter *create_filter_rrc(int num_taps, float beta, float Ts){
         if(fabs(tap) > max)
             max = fabs(tap);
     }
-    scale = 0.75/max;
+    scale = 0.6/max;
     for (int i=0;i<num_taps;i++)
         filt->taps[i] = filt->taps[i] * scale; 
 
