@@ -672,6 +672,9 @@ void start_rx_chain(MCS *mcs){
     FILE *file_course_fft = fopen("cap_course.fft", "w");
     FILE *file_course = fopen("cap_course.fc32", "w");
     FILE *file_mnm = fopen("cap_mnm.fc32", "w");
+    FILE *file_mnm_log = fopen("cap_mnm_log.fc32", "w");
+    FILE *file_ffs = fopen("cap_ffs.fc32", "w");
+    FILE *file_ffs_ofst = fopen("cap_ffs_log.f3c32", "w");
     //printf("Front end: lo_freq(%d), rate(%d)\n", lo_freq, rate);
     static double max_phase = 2. * M_PI;
     double phase = 0;
@@ -702,7 +705,13 @@ void start_rx_chain(MCS *mcs){
     int i_in, i_out;
     float mm_val, real, imag;
     float complex x, y;
-    int samples_per_symbol = mcs->output_sample_rate_hz / mcs->symbol_rate_hz;
+    float mnm_log[buf_size*2];
+    int samples_per_symbol = mcs->input_sample_rate_hz / mcs->symbol_rate_hz;
+    float costas_phase = 0;
+    float freq = 0;
+    float error;
+    float complex costas_out[buf_size];
+    float freq_log[buf_size*2];
     while (1) {
         /* Get Raw Samples */
         if ((err = snd_pcm_readi(capture_handle, buf, buf_size)) != buf_size) {
@@ -748,16 +757,17 @@ void start_rx_chain(MCS *mcs){
         float course_adj_phase = 0;
         float t;
         for (int i=0;i<buf_size;i++){
-            t = i/mcs->input_sample_rate_hz;
-            sample_buf[i] = sample_buf[i] * exp(-1*I*2*M_PI*freq_offset_est_hz*t/2);
+            t = ((float) i)/((float) mcs->input_sample_rate_hz);
+            filt_out_buf[i] = filt_out_buf[i] * exp(I*2*M_PI*(freq_offset_est_hz/2)*t);
         }
-        fwrite(sample_buf, sizeof(float complex), buf_size, file_course);
+        fwrite(filt_out_buf, sizeof(float complex), buf_size, file_course);
 
         /* Time Sync */
         i_in = 0;
         i_out = 2; 
+        int mu_log_idx = 0;
         while (i_out < buf_size && i_in+16 < buf_size){
-            out[i_out] = sample_buf[i_in + (int)mu];
+            out[i_out] = filt_out_buf[i_in + (int)mu];
             real = 0;
             if (creal(out[i_out]) > 0)
                 real = 1;
@@ -765,17 +775,42 @@ void start_rx_chain(MCS *mcs){
             if (cimag(out[i_out]) > 0)
                 imag = 1;
             out_rail[i_out] = real + imag*I;
-            x = (out_rail[i_out] - out_rail[i_out-2]) * conj(out[i_out-1]);
-            y = (out[i_out] - out[i_out-2]) * conj(out_rail[i_out-1]);
+            x = (out_rail[i_out] - out_rail[i_out-2]) * conjf(out[i_out-1]);
+            y = (out[i_out] - out[i_out-2]) * conjf(out_rail[i_out-1]);
             mm_val = creal(y - x);
-            mu += samples_per_symbol + mcs->mnm_aggression*mm_val;
+            mu += ((float) samples_per_symbol) + mcs->mnm_aggression*mm_val;
+            mnm_log[mu_log_idx++] = mm_val;
+            mnm_log[mu_log_idx++] = mu;
             i_in += (int) trunc(mu);
             mu = mu - trunc(mu);
             i_out += 1;
         }
+        float complex *costas_in = &out[2];
+        int len_samples = i_out-2;
+        fwrite(mnm_log, sizeof(float), mu_log_idx, file_mnm_log);
         fwrite(&out[2], sizeof(float complex), i_out-2, file_mnm);
 
-        // fine freq sync
+        /* Fine Frequency Sync */
+        int N = len_samples;
+        float alpha = 0.132;
+        float beta = 0.00932;
+        int freq_log_idx = 0;
+        for(int i=0;i<N;i++){
+            costas_out[i] = costas_in[i] * cexp(-1*I*costas_phase);
+            error = creal(costas_out[i]) * cimag(costas_out[i]);
+            freq_log[freq_log_idx++] = error;
+            freq += (beta * error);
+            freq_log[freq_log_idx++] = freq;
+            costas_phase += freq + (alpha * error);
+            freq_log[freq_log_idx++] = costas_phase;
+            while (costas_phase >= 2*M_PI)
+                costas_phase -= 2*M_PI;
+            while (costas_phase < 0)
+                costas_phase += 2*M_PI;
+        }
+        fwrite(freq_log, sizeof(float), freq_log_idx, file_ffs_ofst);
+        fwrite(costas_out, sizeof(float complex), N, file_ffs);
+
 
         // demodulate
 
@@ -789,6 +824,9 @@ void start_rx_chain(MCS *mcs){
     fclose(file_course_fft);
     fclose(file_course);
     fclose(file_mnm);
+    fclose(file_mnm_log);
+    fclose(file_ffs);
+    fclose(file_ffs_ofst);
 
     fftw_destroy_plan(plan);
     fftw_cleanup();
