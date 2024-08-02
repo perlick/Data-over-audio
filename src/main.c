@@ -565,7 +565,7 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
                 break;
             }
         }
-        printf("symbol %d: %f + i%f\n", i, creal(symbol_buf[i]), cimag(symbol_buf[i]));
+        //printf("symbol %d: %f + i%f\n", i, creal(symbol_buf[i]), cimag(symbol_buf[i]));
     }
 
     // do pulse shaping with matched filter. upscaling by samples per symbol
@@ -675,6 +675,7 @@ void start_rx_chain(MCS *mcs){
     FILE *file_mnm_log = fopen("cap_mnm_log.fc32", "w");
     FILE *file_ffs = fopen("cap_ffs.fc32", "w");
     FILE *file_ffs_ofst = fopen("cap_ffs_log.f3c32", "w");
+    FILE *file_const = fopen("cap_const.const", "w");
     //printf("Front end: lo_freq(%d), rate(%d)\n", lo_freq, rate);
     static double max_phase = 2. * M_PI;
     double phase = 0;
@@ -810,10 +811,10 @@ void start_rx_chain(MCS *mcs){
         }
         fwrite(freq_log, sizeof(float), freq_log_idx, file_ffs_ofst);
         fwrite(costas_out, sizeof(float complex), N, file_ffs);
+        fwrite(costas_out, sizeof(float complex), N, file_const);
 
-
-        // demodulate
-
+        /* Demodulate */
+        
         // frame detection
 
         // channel decode
@@ -948,6 +949,12 @@ int main(){
         start_tx_chain(fe_buf, cur_mcs);
     }
  
+    x = write_buf(myArray, 24, &in_buf, 1);
+    tx_encode_packet(&in_buf, cur_mcs, fe_buf);
+    x = write_buf(myArray, 24, &in_buf, 1);
+    tx_encode_packet(&in_buf, cur_mcs, fe_buf);
+    x = write_buf(myArray, 24, &in_buf, 1);
+    tx_encode_packet(&in_buf, cur_mcs, fe_buf);
 
     char *line = NULL;
     size_t size;
