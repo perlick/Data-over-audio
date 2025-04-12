@@ -1,3 +1,4 @@
+#include "linux_asoundlib.h"
 #include <alsa/asoundlib.h>
 #include <complex.h>
 #include <errno.h>
@@ -7,10 +8,14 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/mman.h> 
+#include <sys/mman.h>
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "circ_buf.h"
+#include "macros.h"
+#include "mcs.h"
+#include "filter.h"
 
 static char *device = "default";         /* playback device */
 static unsigned int channels = 1;           /* count of channels */
@@ -38,18 +43,7 @@ struct transfer_method {
                  CircBuf *iq_buf, int lo_freq);
 };
 
-static struct transfer_method transfer_methods[] = {
-    { "write", SND_PCM_ACCESS_RW_INTERLEAVED, NULL },
-    { "write_and_poll", SND_PCM_ACCESS_RW_INTERLEAVED, write_and_poll_loop },
-    { "async", SND_PCM_ACCESS_RW_INTERLEAVED, NULL},
-    { "async_direct", SND_PCM_ACCESS_MMAP_INTERLEAVED, NULL},
-    { "direct_interleaved", SND_PCM_ACCESS_MMAP_INTERLEAVED, NULL},
-    { "direct_noninterleaved", SND_PCM_ACCESS_MMAP_NONINTERLEAVED, NULL},
-    { "direct_write", SND_PCM_ACCESS_MMAP_INTERLEAVED, NULL},
-    { NULL, SND_PCM_ACCESS_RW_INTERLEAVED, NULL }
-};
-
-static void run_front_end_calculation(const snd_pcm_channel_area_t *areas, 
+static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
               snd_pcm_uframes_t offset,
               int count, double *_phase,
               CircBuf *iq_buf,
@@ -71,7 +65,7 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
             format == SND_PCM_FORMAT_FLOAT_BE);
     fcomplex sample;
     int num_read;
- 
+
     /* verify and prepare the contents of areas */
     for (chn = 0; chn < channels; chn++) {
         if ((areas[chn].first % 8) != 0) {
@@ -93,7 +87,7 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
         num_read = read_buf(iq_buf, 1, &sample);
         // if there's nothing to read, play the carrier.
         if (num_read == 0)
-            sample = 1 + 0*I; 
+            sample = 1 + 0*I;
 
         union {
             float f;
@@ -136,7 +130,7 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
 /*
  *   Underrun and suspend recovery
  */
- 
+
 static int xrun_recovery(snd_pcm_t *handle, int err){
     if (verbose)
         printf("stream recovery\n");
@@ -165,7 +159,7 @@ static int set_hwparams(snd_pcm_t *handle,
     unsigned int rrate;
     snd_pcm_uframes_t size;
     int err, dir;
- 
+
     /* choose all parameters */
     err = snd_pcm_hw_params_any(handle, params);
     if (err < 0) {
@@ -243,7 +237,7 @@ static int set_hwparams(snd_pcm_t *handle,
 
 static int set_swparams(snd_pcm_t *handle, snd_pcm_sw_params_t *swparams){
     int err;
- 
+
     /* get the current swparams */
     err = snd_pcm_sw_params_current(handle, swparams);
     if (err < 0) {
@@ -284,10 +278,10 @@ static int set_swparams(snd_pcm_t *handle, snd_pcm_sw_params_t *swparams){
 /*
  *   Transfer method - write and wait for room in buffer using poll
  */
- 
+
 static int wait_for_poll(snd_pcm_t *handle, struct pollfd *ufds, unsigned int count){
     unsigned short revents;
- 
+
     while (1) {
         poll(ufds, count, -1);
         snd_pcm_poll_descriptors_revents(handle, ufds, count, &revents);
@@ -297,7 +291,7 @@ static int wait_for_poll(snd_pcm_t *handle, struct pollfd *ufds, unsigned int co
             return 0;
     }
 }
- 
+
 static int write_and_poll_loop(snd_pcm_t *handle,
                    signed short *samples,
                    snd_pcm_channel_area_t *areas,
@@ -308,13 +302,13 @@ static int write_and_poll_loop(snd_pcm_t *handle,
     int err, count, cptr, init;
     FILE *plbk_raw = fopen("plbk_raw.s16", "w");
     //FILE *plbk_raw = NULL;
-    
+
     count = snd_pcm_poll_descriptors_count (handle);
     if (count <= 0) {
         printf("Invalid poll descriptors count\n");
         return count;
     }
- 
+
     ufds = malloc(sizeof(struct pollfd) * count);
     if (ufds == NULL) {
         printf("No enough memory\n");
@@ -324,7 +318,7 @@ static int write_and_poll_loop(snd_pcm_t *handle,
         printf("Unable to obtain poll descriptors for playback: %s\n", snd_strerror(err));
         return err;
     }
- 
+
     init = 1;
     while (1) {
         if (!init) {
@@ -344,10 +338,10 @@ static int write_and_poll_loop(snd_pcm_t *handle,
                 }
             }
         }
-    
- 
+
+
         run_front_end_calculation(areas, 0, period_size, &phase, iq_buf, lo_freq, plbk_raw);
-        
+
         ptr = samples;
         cptr = period_size;
         while (cptr > 0) {
@@ -387,20 +381,31 @@ static int write_and_poll_loop(snd_pcm_t *handle,
     }
 }
 
+static struct transfer_method transfer_methods[] = {
+    { "write", SND_PCM_ACCESS_RW_INTERLEAVED, NULL },
+    { "write_and_poll", SND_PCM_ACCESS_RW_INTERLEAVED, write_and_poll_loop },
+    { "async", SND_PCM_ACCESS_RW_INTERLEAVED, NULL},
+    { "async_direct", SND_PCM_ACCESS_MMAP_INTERLEAVED, NULL},
+    { "direct_interleaved", SND_PCM_ACCESS_MMAP_INTERLEAVED, NULL},
+    { "direct_noninterleaved", SND_PCM_ACCESS_MMAP_NONINTERLEAVED, NULL},
+    { "direct_write", SND_PCM_ACCESS_MMAP_INTERLEAVED, NULL},
+    { NULL, SND_PCM_ACCESS_RW_INTERLEAVED, NULL }
+};
 
-void start_tx_chain(CircBuf *iq_buf, MCS *mcs){
+
+void start_tx_chain(MCS *mcs, CircBuf *iq_buf){
     snd_pcm_t *handle;
     int err, morehelp;
     rate = mcs->output_sample_rate_hz;
     freq = mcs->carrier_freq_hz;
-    
+
     snd_pcm_hw_params_t *hwparams;
     snd_pcm_sw_params_t *swparams;
-    
+
     signed short *samples;
     unsigned int chn;
     snd_pcm_channel_area_t *areas;
- 
+
     snd_pcm_hw_params_alloca(&hwparams);
     snd_pcm_sw_params_alloca(&swparams);
 
@@ -423,12 +428,12 @@ void start_tx_chain(CircBuf *iq_buf, MCS *mcs){
     printf("Stream parameters are %uHz, %s, %u channels\n", rate, snd_pcm_format_name(format), channels);
     printf("Using transfer method: %s\n", transfer_methods[method].name);
     fflush(stdout);
- 
+
     if ((err = snd_pcm_open(&handle, device, SND_PCM_STREAM_PLAYBACK, 0)) < 0) {
         printf("Playback open error: %s\n", snd_strerror(err));
         return;
     }
-    
+
     if ((err = set_hwparams(handle, hwparams, transfer_methods[method].access, rate)) < 0) {
         printf("Setting of hwparams failed: %s\n", snd_strerror(err));
         exit(EXIT_FAILURE);
@@ -437,16 +442,16 @@ void start_tx_chain(CircBuf *iq_buf, MCS *mcs){
         printf("Setting of swparams failed: %s\n", snd_strerror(err));
         exit(EXIT_FAILURE);
     }
-    
+
     if (verbose > 0)
         snd_pcm_dump(handle, output);
-    
+
     samples = malloc((period_size * channels * snd_pcm_format_physical_width(format)) / 8);
     if (samples == NULL) {
         printf("No enough memory\n");
         exit(EXIT_FAILURE);
     }
-    
+
     areas = calloc(channels, sizeof(snd_pcm_channel_area_t));
     if (areas == NULL) {
         printf("No enough memory\n");
@@ -457,14 +462,14 @@ void start_tx_chain(CircBuf *iq_buf, MCS *mcs){
         areas[chn].first = chn * snd_pcm_format_physical_width(format);
         areas[chn].step = channels * snd_pcm_format_physical_width(format);
     }
- 
+
     printf("starting transfer loop.\n");
     fflush(stdout);
- 
+
     err = transfer_methods[method].transfer_loop(handle, samples, areas, iq_buf, mcs->carrier_freq_hz);
     if (err < 0)
         printf("Transfer failed: %s\n", snd_strerror(err));
- 
+
     free(areas);
     free(samples);
     snd_pcm_close(handle);
@@ -484,18 +489,18 @@ void start_rx_chain(MCS *mcs){
     snd_pcm_hw_params_t *hw_params;
 
     if ((err = snd_pcm_open(&capture_handle, device, SND_PCM_STREAM_CAPTURE, 0)) < 0) {
-        fprintf (stderr, "cannot open audio device %s (%s)\n", 
-             device, 
+        fprintf (stderr, "cannot open audio device %s (%s)\n",
+             device,
              snd_strerror(err));
         exit(1);
     }
-       
+
     if ((err = snd_pcm_hw_params_malloc (&hw_params)) < 0) {
         fprintf (stderr, "cannot allocate hardware parameter structure (%s)\n",
              snd_strerror(err));
         exit(1);
     }
-             
+
     if ((err = snd_pcm_hw_params_any(capture_handle, hw_params)) < 0) {
         fprintf (stderr, "cannot initialize hardware parameter structure (%s)\n",
              snd_strerror(err));
@@ -595,10 +600,10 @@ void start_rx_chain(MCS *mcs){
             exit(1);
         }
         fwrite(buf, sizeof(int16_t), buf_size, file_raw);
- 
+
         /* RF Front End Simulation */
         for (int i=0;i<buf_size;i++){
-            scaled = (float) buf[i] / maxval; 
+            scaled = (float) buf[i] / maxval;
             sample_buf[i] = scaled * sin(phase) + scaled * cos(phase) * I;
             phase += step;
             if (phase >= max_phase)
@@ -616,7 +621,7 @@ void start_rx_chain(MCS *mcs){
 
         /* Course Freq Sync */
         for (int i=0;i<buf_size;i++){
-            freq_est_in_buf[i] = (double complex) cpow(filt_out_buf[i], order); 
+            freq_est_in_buf[i] = (double complex) cpow(filt_out_buf[i], order);
         }
         fftw_execute(plan);
         rewind(file_course_fft);
@@ -627,7 +632,7 @@ void start_rx_chain(MCS *mcs){
                max = i;
         }
         max = (max + buf_size/2)%buf_size; // fftshift
-        freq_offset_est_hz = (-1*(float)mcs->input_sample_rate_hz/2) + ((float)mcs->input_sample_rate_hz / buf_size) * max; 
+        freq_offset_est_hz = (-1*(float)mcs->input_sample_rate_hz/2) + ((float)mcs->input_sample_rate_hz / buf_size) * max;
         printf("Frequency offset estimate: %f\n", freq_offset_est_hz/2);
         float course_adj_phase = 0;
         float t;
@@ -639,7 +644,7 @@ void start_rx_chain(MCS *mcs){
 
         /* Time Sync */
         i_in = 0;
-        i_out = 2; 
+        i_out = 2;
         int mu_log_idx = 0;
         while (i_out < buf_size && i_in+16 < buf_size){
             out[i_out] = filt_out_buf[i_in + (int)mu];
@@ -688,7 +693,7 @@ void start_rx_chain(MCS *mcs){
         fwrite(costas_out, sizeof(fcomplex), N, file_const);
 
         /* Demodulate */
-        
+
         // frame detection
 
         // channel decode

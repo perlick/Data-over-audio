@@ -1,6 +1,7 @@
 #ifndef DOA_FILTER
 #define DOA_FILTER
 #include <complex.h>
+#include "macros.h"
 
 struct filter {
     int num_taps;

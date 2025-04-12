@@ -1,4 +1,4 @@
-OBJS=src/main.o src/circ_buf.o src/filter.o
+OBJS=src/main.c src/circ_buf.c src/filter.c src/linux_asoundlib.c src/proc.c src/shared_mem.c
 
 all: $(OBJS)
 	gcc -g $(OBJS) -lasound -lfftw3 -lm -o src/main.out

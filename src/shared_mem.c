@@ -9,6 +9,7 @@ void* create_shared_memory(size_t size){
 
 #elif __linux
 #include <sys/mman.h>
+#include <stddef.h>
 
 void* create_shared_memory(size_t size){
     int protection = PROT_READ | PROT_WRITE;

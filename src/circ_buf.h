@@ -1,6 +1,6 @@
 #ifndef DOA_CIRCBUF
 #define DOA_CIRCBUF
-#include <stddef.h> 
+#include <stddef.h>
 #include <stdio.h>
 
 struct circBuf {

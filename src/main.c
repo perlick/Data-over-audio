@@ -3,41 +3,29 @@
 #include <fftw3.h>
 #include <math.h>
 #include <signal.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #ifdef _WIN32
 #include <windows.h>
 #include <synchapi.h>
 #elif __linux
+#include "linux_asoundlib.h"
 #endif
 #include "macros.h"
 #include "circ_buf.h"
 #include "filter.h"
 #include "shared_mem.h"
+#include "proc.h"
+#include "mcs.h"
 
 
 #define noop
 
 static int max_L2_packet_size_bytes = 1500;
 
-
-struct mcs {
-    int channel_coding; // 0 is none
-    int bits_per_symbol; // Number of bits per symbol
-    int num_symbols; // Number of symbols / len of lists
-    char *symbol_list_int; //Array of integer symbols. data representation
-    fcomplex *symbol_list_complex; // Parallel array of complex numbers. signal representation
-    int output_sample_rate_hz; // rate of the samples being sent to hardware device
-    int symbol_rate_hz; // Rate of symbols being encoded into signal
-    int carrier_freq_hz; // Tune Lo to this freq
-    int input_sample_rate_hz; 
-    int order; // Course frequency estimate multiplies by this number before taking FFT 
-    float mnm_aggression;
-    Filter *tx_filter;
-    Filter *rx_filter;
-};
-typedef struct mcs MCS;
 
 int intPow(int x,int n)
 {
@@ -49,8 +37,6 @@ int intPow(int x,int n)
 
     return(number);
 }
-
-
 
 void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
     // buffer for raw data
@@ -70,11 +56,11 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
     // read data from circular buffer
     int num_read = read_buf(buf, max_L2_packet_size_bytes, data_buf);
 
-    // channel coding 
+    // channel coding
     if (mcs->channel_coding==0){
         noop;
     }
-    
+
     // convert to symbols
     int num_symbols = (((num_read*8) + mcs->bits_per_symbol - 1) / mcs->bits_per_symbol);
     // printf("num symbols: %d\n", num_symbols);
@@ -96,7 +82,7 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
         }
         int shift = first_bit_index % 8;
         sym_int = sym_int >> shift & mask;
-        // TODO convert this to a dict lookup 
+        // TODO convert this to a dict lookup
         for(int j=0;j<mcs->num_symbols;j=j+1){
             if(sym_int == mcs->symbol_list_int[j]){
                 symbol_buf[i] = mcs->symbol_list_complex[j];
@@ -107,7 +93,7 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
     }
 
     // do pulse shaping with matched filter. upscaling by samples per symbol
-    // For now, do not do pulse shaping, just upscale 
+    // For now, do not do pulse shaping, just upscale
     int num_samples;
     num_samples = num_symbols * samples_per_symbol;
     for(int i=0;i<num_symbols;i++){
@@ -136,7 +122,7 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
 }
 
 int main(){
-    /* setup bsaic handlers/
+    /* setup bsaic handlers/ */
     // struct sigaction sa;
     // sa.sa_handler = handler;
     // sigemptyset(&sa.sa_mask);
@@ -148,7 +134,7 @@ int main(){
     // }
 
     char myArray[] = { 0xff, 0x11, 0x22, 0xff, 0xec, 0x12, 0x00, 0x11, 0x22, 0xff, 0xec, 0x12, 0x00, 0x11, 0x22, 0xff, 0xec, 0x12,0x00, 0x11, 0x22, 0xff, 0xec, 0x12};
- 
+
     char* tx_input_buffer = malloc(max_L2_packet_size_bytes);
 
     struct circBuf in_buf;
@@ -158,9 +144,10 @@ int main(){
     in_buf.read_idx = 0;
     in_buf.write_idx = 0;
     in_buf.count = 0;
+    in_buf.stream = NULL;
 
     int x = write_buf(myArray, 24, &in_buf, 1);
- 
+
     /* bpsk */
     struct mcs mcs0;
     mcs0.channel_coding = 0;
@@ -169,9 +156,9 @@ int main(){
     mcs0.symbol_list_int = malloc(mcs0.num_symbols);
     mcs0.symbol_list_complex = malloc(mcs0.num_symbols * sizeof(fcomplex));
     mcs0.symbol_list_int[0] = 0;
-    mcs0.symbol_list_complex[0] = (fcomplex) { 1.0f, 0.0f };
+    mcs0.symbol_list_complex[0] = (fcomplex) 1.0 * 0.0I;
     mcs0.symbol_list_int[1] = 1;
-    mcs0.symbol_list_complex[1] = (fcomplex) { -1.0f, 0.0f };
+    mcs0.symbol_list_complex[1] = (fcomplex) -1.0* 0.0I;
     mcs0.output_sample_rate_hz = 8000;
     mcs0.symbol_rate_hz = 100;
     mcs0.carrier_freq_hz = 440;
@@ -188,13 +175,13 @@ int main(){
     mcs1.symbol_list_int = malloc(mcs1.num_symbols);
     mcs1.symbol_list_complex = malloc(mcs1.num_symbols * sizeof(fcomplex));
     mcs1.symbol_list_int[0] = 0;
-    mcs1.symbol_list_complex[0] = (fcomplex) {1.0f, 0.0f};
+    mcs1.symbol_list_complex[0] = (fcomplex) 1.0* 0.0I;
     mcs1.symbol_list_int[1] = 1;
-    mcs1.symbol_list_complex[1] = (fcomplex) {-1.0f, 0.0f};
+    mcs1.symbol_list_complex[1] = (fcomplex) -1.0* 0.0I;
     mcs1.symbol_list_int[2] = 2;
-    mcs1.symbol_list_complex[2] = (fcomplex) {0.0f, 1.0f};
+    mcs1.symbol_list_complex[2] = (fcomplex) 0.0* 1.0I;
     mcs1.symbol_list_int[3] = 3;
-    mcs1.symbol_list_complex[3] = (fcomplex) {0.0f, -1.0f};
+    mcs1.symbol_list_complex[3] = (fcomplex) 0.0* -1.0I;
     mcs1.output_sample_rate_hz = 8000;
     mcs1.symbol_rate_hz = 100;
     mcs1.carrier_freq_hz = 440;
@@ -206,9 +193,9 @@ int main(){
 
     struct mcs *cur_mcs = &mcs0;
 
-    // put the fe buffer in a shared memory space. 
+    // put the fe buffer in a shared memory space.
     int samples_per_symbol = cur_mcs->output_sample_rate_hz / cur_mcs->symbol_rate_hz;
-    int max_L2_packet_size_samples = (max_L2_packet_size_bytes * 8 / cur_mcs->bits_per_symbol) * samples_per_symbol + cur_mcs->tx_filter->num_taps + 1; 
+    int max_L2_packet_size_samples = (max_L2_packet_size_bytes * 8 / cur_mcs->bits_per_symbol) * samples_per_symbol + cur_mcs->tx_filter->num_taps + 1;
     char* fe_input_buffer = create_shared_memory(max_L2_packet_size_samples * sizeof(fcomplex));
     struct circBuf *fe_buf = create_shared_memory(sizeof(struct circBuf));
     fe_buf->element_size = sizeof(fcomplex);
@@ -220,19 +207,19 @@ int main(){
     fe_buf->stream = fopen("plbk_iq.fc32", "w");
     //fe_buf->stream = NULL;
 
-    start_rx_chain()
+    spawn_rx_chain(cur_mcs);
 
     // write a packet of IQ samples to buffer
     tx_encode_packet(&in_buf, cur_mcs, fe_buf);
-    
 
- 
     x = write_buf(myArray, 24, &in_buf, 1);
     tx_encode_packet(&in_buf, cur_mcs, fe_buf);
     x = write_buf(myArray, 24, &in_buf, 1);
     tx_encode_packet(&in_buf, cur_mcs, fe_buf);
     x = write_buf(myArray, 24, &in_buf, 1);
     tx_encode_packet(&in_buf, cur_mcs, fe_buf);
+
+    spawn_tx_chain(cur_mcs, fe_buf);
 
     char *line = NULL;
     size_t size;
