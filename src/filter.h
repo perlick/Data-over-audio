@@ -6,7 +6,7 @@ struct filter {
     int num_taps;
     float beta;
     int Ts;
-    float *taps; 
+    float *taps;
 };
 typedef struct filter Filter;
 
@@ -18,8 +18,8 @@ Filter *create_filter_rc1(float symbol_len, float beta, float Ts);
 
 Filter *create_filter_rc(int num_taps, float beta, float Ts);
 
-float complex *convolve_valid(float complex *h, int lenH, Filter *x, int* lenY);
+fcomplex *convolve_valid(fcomplex *h, int lenH, Filter *x, int* lenY);
 
-float complex *convolve(float complex *h, int lenH, Filter *x, int* lenY);
+fcomplex *convolve(fcomplex *h, int lenH, Filter *x, int* lenY);
 
 #endif

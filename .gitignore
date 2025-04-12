@@ -11,3 +11,7 @@
 *.s16
 *.f32
 *.fft
+
+# Build files
+build
+CMakeFiles

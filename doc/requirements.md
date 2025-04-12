@@ -1,0 +1,1 @@
+1. program must run on windows, linux, mac, and wasm

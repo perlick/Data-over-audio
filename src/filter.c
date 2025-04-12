@@ -78,14 +78,14 @@ Filter *create_filter_rc(int num_taps, float beta, float Ts){
     return filt;
 }
 
-float complex *convolve_valid(float complex *h, int lenH, Filter *filter, int* lenY){
+fcomplex *convolve_valid(fcomplex *h, int lenH, Filter *filter, int* lenY){
     int lenX = filter->num_taps;
     int nconv = fmax(lenH,lenX) - fmin(lenH,lenX) + 1;
     *lenY = nconv;
     int i,j,h_start,x_start,x_end;
 
-    float complex *y = calloc(nconv, sizeof(float complex));
-    memset(y, 0, nconv*sizeof(float complex));
+    fcomplex *y = calloc(nconv, sizeof(fcomplex));
+    memset(y, 0, nconv*sizeof(fcomplex));
 
     for (i=0; i<nconv; i++){
         x_start = 0;
@@ -98,13 +98,13 @@ float complex *convolve_valid(float complex *h, int lenH, Filter *filter, int* l
     return y;
 }
 
-float complex *convolve(float complex *h, int lenH, Filter *filter, int* lenY){
+fcomplex *convolve(fcomplex *h, int lenH, Filter *filter, int* lenY){
     int lenX = filter->num_taps;
     int nconv = lenH+lenX-1;
     *lenY = nconv;
     int i,j,h_start,x_start,x_end;
 
-    float complex *y = calloc(nconv, sizeof(float complex));
+    fcomplex *y = calloc(nconv, sizeof(fcomplex));
 
     for (i=0; i<nconv; i++){
         x_start = fmax(0,i-lenH+1);
