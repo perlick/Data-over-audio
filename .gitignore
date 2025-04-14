@@ -11,6 +11,8 @@
 *.s16
 *.f32
 *.fft
+*.const
+*.f3c32
 
 # Build files
 build

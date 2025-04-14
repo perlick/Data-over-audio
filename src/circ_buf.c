@@ -47,7 +47,7 @@ int write_buf(void *in_buf, int len, CircBuf *me, int block){
     if(me->stream != NULL){
         fwrite(in_buf, me->element_size, (size_t) len, me->stream);
     }
-    
+
     me->write_idx = (me->write_idx + len) % me->len;
     me->count = me->count + len;
     return len;

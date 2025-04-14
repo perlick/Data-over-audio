@@ -38,7 +38,7 @@ int intPow(int x,int n)
     return(number);
 }
 
-void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
+void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf, FILE *plbk_sym){
     // buffer for raw data
     char* data_buf = malloc(max_L2_packet_size_bytes);
     // buffer for symbols
@@ -99,9 +99,7 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf){
     for(int i=0;i<num_symbols;i++){
         sample_buf[i*samples_per_symbol] = symbol_buf[i];
     }
-    FILE *plbk_sym = fopen("plbk_sym.fc32", "w");
     fwrite(sample_buf, sizeof(fcomplex), num_samples, plbk_sym);
-    fclose(plbk_sym);
 
     int len_filt_buf;
     fcomplex *filt_buf = convolve(sample_buf, num_samples, mcs->tx_filter, &len_filt_buf);
@@ -206,20 +204,32 @@ int main(){
     fe_buf->count = 0;
     fe_buf->stream = fopen("plbk_iq.fc32", "w");
     //fe_buf->stream = NULL;
+    char* sample_input_buffer = create_shared_memory(max_L2_packet_size_samples * sizeof(fcomplex));
+    struct circBuf *sample_buf = create_shared_memory(sizeof(struct circBuf));
+    sample_buf->element_size = sizeof(fcomplex);
+    sample_buf->start = sample_input_buffer;
+    sample_buf->len = max_L2_packet_size_samples;
+    sample_buf->read_idx = 0;
+    sample_buf->write_idx = 0;
+    sample_buf->count = 0;
+    sample_buf->stream = fopen("plbk_raw_buf_tap.s16", "w");
 
-    spawn_rx_chain(cur_mcs);
+    FILE *plbk_sym = fopen("plbk_sym.fc32", "a");
 
-    // write a packet of IQ samples to buffer
-    tx_encode_packet(&in_buf, cur_mcs, fe_buf);
+    spawn_rx_chain(cur_mcs, sample_buf);
+
+    // convert a packet of data to IQ symbols
+    tx_encode_packet(&in_buf, cur_mcs, fe_buf, plbk_sym);
 
     x = write_buf(myArray, 24, &in_buf, 1);
-    tx_encode_packet(&in_buf, cur_mcs, fe_buf);
+    tx_encode_packet(&in_buf, cur_mcs, fe_buf, plbk_sym);
     x = write_buf(myArray, 24, &in_buf, 1);
-    tx_encode_packet(&in_buf, cur_mcs, fe_buf);
+    tx_encode_packet(&in_buf, cur_mcs, fe_buf, plbk_sym);
     x = write_buf(myArray, 24, &in_buf, 1);
-    tx_encode_packet(&in_buf, cur_mcs, fe_buf);
+    tx_encode_packet(&in_buf, cur_mcs, fe_buf, plbk_sym);
+    fclose(plbk_sym);
 
-    spawn_tx_chain(cur_mcs, fe_buf);
+    spawn_tx_chain(cur_mcs, fe_buf, sample_buf);
 
     char *line = NULL;
     size_t size;
@@ -230,7 +240,7 @@ int main(){
             printf("No line\n");
         } else {
             x = write_buf(line, num, &in_buf, 1);
-            tx_encode_packet(&in_buf, &mcs1, fe_buf);
+            tx_encode_packet(&in_buf, &mcs1, fe_buf, plbk_sym);
         }
     }
 };

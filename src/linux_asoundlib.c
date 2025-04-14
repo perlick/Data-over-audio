@@ -34,6 +34,14 @@ static snd_pcm_sframes_t period_size;
 
 static snd_output_t *output = NULL;
 
+int format_bits = 16;
+unsigned int maxval = 32767; //(1 << (format_bits - 1)) - 1;
+int bps = 2;  /* bytes per sample */
+int phys_bps = 2;
+int big_endian = 0;
+int to_unsigned = 0;
+int is_float = 0;
+
 struct transfer_method {
     const char *name;
     snd_pcm_access_t access;
@@ -43,45 +51,22 @@ struct transfer_method {
                  CircBuf *iq_buf, int lo_freq);
 };
 
-static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
-              snd_pcm_uframes_t offset,
-              int count, double *_phase,
-              CircBuf *iq_buf,
-              int lo_freq, FILE *file){
+static void run_front_end_calculation(
+              CircBuf *sample_buf, /*output sample buffer*/
+              int count, /*number of iq samples to be converted form iq_buf*/
+              double *_phase, /*lo phase at time of the first sample*/
+              CircBuf *iq_buf, /*iq samples to be mixed*/
+              int lo_freq, /*frequency of lo*/
+              FILE *file /*output file*/
+        ){
     //printf("Front end: lo_freq(%d), rate(%d)\n", lo_freq, rate);
     static double max_phase = 2. * M_PI;
     double phase = *_phase;
     double step = max_phase*lo_freq/(double)rate;
-    unsigned char *samples[channels];
-    int steps[channels];
-    unsigned int chn;
-    int format_bits = snd_pcm_format_width(format);
-    unsigned int maxval = (1 << (format_bits - 1)) - 1;
-    int bps = format_bits / 8;  /* bytes per sample */
-    int phys_bps = snd_pcm_format_physical_width(format) / 8;
-    int big_endian = snd_pcm_format_big_endian(format) == 1;
-    int to_unsigned = snd_pcm_format_unsigned(format) == 1;
-    int is_float = (format == SND_PCM_FORMAT_FLOAT_LE ||
-            format == SND_PCM_FORMAT_FLOAT_BE);
     fcomplex sample;
     int num_read;
+    int num_written;
 
-    /* verify and prepare the contents of areas */
-    for (chn = 0; chn < channels; chn++) {
-        if ((areas[chn].first % 8) != 0) {
-            printf("areas[%u].first == %u, aborting...\n", chn, areas[chn].first);
-            exit(EXIT_FAILURE);
-        }
-        samples[chn] = /*(signed short *)*/(((unsigned char *)areas[chn].addr) + (areas[chn].first / 8));
-        if ((areas[chn].step % 16) != 0) {
-            printf("areas[%u].step == %u, aborting...\n", chn, areas[chn].step);
-            exit(EXIT_FAILURE);
-        }
-        steps[chn] = areas[chn].step / 8;
-        samples[chn] += offset * steps[chn];
-    }
-
-    /* fill the channel areas */
     while (count-- > 0) {
         // read a sample from the buffer
         num_read = read_buf(iq_buf, 1, &sample);
@@ -89,37 +74,17 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
         if (num_read == 0)
             sample = 1 + 0*I;
 
-        union {
-            float f;
-            int i;
-        } fval;
         short res, i;
         float inter;
-        if (is_float) {
-            fval.f = creal(sample) * sin(phase) + cimag(sample) * cos(phase);
-            res = fval.i;
-        } else {
-            // Assumes amplitudes of I and Q do not exceed -1,1
-            inter = creal(sample) * sin(phase) + cimag(sample) * cos(phase);
-            inter = fmin(inter, 1);
-            inter = fmax(inter, -1);
-            res = inter * maxval;
-            fwrite(&res, sizeof(short), 1, file);
-            //printf("fe calc: I(%f) * sin(%f) + Q(%f) * cos(%f) * maxval(%d) = res(%d); \n", creal(sample), phase, cimag(sample), phase, maxval, res);
-        }
-        if (to_unsigned)
-            res ^= 1U << (format_bits - 1);
-        for (chn = 0; chn < channels; chn++) {
-            /* Generate data in native endian format */
-            if (big_endian) {
-                for (i = 0; i < bps; i++)
-                    *(samples[chn] + phys_bps - 1 - i) = (res >> i * 8) & 0xff;
-            } else {
-                for (i = 0; i < bps; i++)
-                    *(samples[chn] + i) = (res >>  i * 8) & 0xff;
-            }
-            samples[chn] += steps[chn];
-        }
+        // Assumes amplitudes of I and Q do not exceed -1,1
+        inter = creal(sample) * sin(phase) + cimag(sample) * cos(phase);
+        inter = fmin(inter, 1);
+        inter = fmax(inter, -1);
+        res = inter * maxval;
+        while (write_buf(&res, bps, sample_buf, 1) != bps)
+            sleep(0.01);
+        fwrite(&res, bps, 1, file);
+        //printf("fe calc: I(%f) * sin(%f) + Q(%f) * cos(%f) * maxval(%d) = res(%d); \n", creal(sample), phase, cimag(sample), phase, maxval, res);
         phase += step;
         if (phase >= max_phase)
             phase -= max_phase;
@@ -127,357 +92,29 @@ static void run_front_end_calculation(const snd_pcm_channel_area_t *areas,
     *_phase = phase;
 }
 
-/*
- *   Underrun and suspend recovery
- */
-
-static int xrun_recovery(snd_pcm_t *handle, int err){
-    if (verbose)
-        printf("stream recovery\n");
-    if (err == -EPIPE) {    /* under-run */
-        err = snd_pcm_prepare(handle);
-        if (err < 0)
-            printf("Can't recovery from underrun, prepare failed: %s\n", snd_strerror(err));
-        return 0;
-    } else if (err == -ESTRPIPE) {
-        while ((err = snd_pcm_resume(handle)) == -EAGAIN)
-            sleep(1);   /* wait until the suspend flag is released */
-        if (err < 0) {
-            err = snd_pcm_prepare(handle);
-            if (err < 0)
-                printf("Can't recovery from suspend, prepare failed: %s\n", snd_strerror(err));
-        }
-        return 0;
-    }
-    return err;
-}
-
-static int set_hwparams(snd_pcm_t *handle,
-            snd_pcm_hw_params_t *params,
-            snd_pcm_access_t access,
-            int unsigned rate){
-    unsigned int rrate;
-    snd_pcm_uframes_t size;
-    int err, dir;
-
-    /* choose all parameters */
-    err = snd_pcm_hw_params_any(handle, params);
-    if (err < 0) {
-        printf("Broken configuration for playback: no configurations available: %s\n", snd_strerror(err));
-        return err;
-    }
-    /* set hardware resampling */
-    err = snd_pcm_hw_params_set_rate_resample(handle, params, resample);
-    if (err < 0) {
-        printf("Resampling setup failed for playback: %s\n", snd_strerror(err));
-        return err;
-    }
-    /* set the interleaved read/write format */
-    err = snd_pcm_hw_params_set_access(handle, params, access);
-    if (err < 0) {
-        printf("Access type not available for playback: %s\n", snd_strerror(err));
-        return err;
-    }
-    /* set the sample format */
-    err = snd_pcm_hw_params_set_format(handle, params, format);
-    if (err < 0) {
-        printf("Sample format not available for playback: %s\n", snd_strerror(err));
-        return err;
-    }
-    /* set the count of channels */
-    err = snd_pcm_hw_params_set_channels(handle, params, channels);
-    if (err < 0) {
-        printf("Channels count (%u) not available for playbacks: %s\n", channels, snd_strerror(err));
-        return err;
-    }
-    /* set the stream rate */
-    rrate = rate;
-    err = snd_pcm_hw_params_set_rate_near(handle, params, &rrate, 0);
-    if (err < 0) {
-        printf("Rate %uHz not available for playback: %s\n", rate, snd_strerror(err));
-        return err;
-    }
-    if (rrate != rate) {
-        printf("Rate doesn't match (requested %uHz, get %iHz)\n", rate, err);
-        return -EINVAL;
-    }
-    /* set the buffer time */
-    err = snd_pcm_hw_params_set_buffer_time_near(handle, params, &buffer_time, &dir);
-    if (err < 0) {
-        printf("Unable to set buffer time %u for playback: %s\n", buffer_time, snd_strerror(err));
-        return err;
-    }
-    err = snd_pcm_hw_params_get_buffer_size(params, &size);
-    if (err < 0) {
-        printf("Unable to get buffer size for playback: %s\n", snd_strerror(err));
-        return err;
-    }
-    buffer_size = size;
-    /* set the period time */
-    err = snd_pcm_hw_params_set_period_time_near(handle, params, &period_time, &dir);
-    if (err < 0) {
-        printf("Unable to set period time %u for playback: %s\n", period_time, snd_strerror(err));
-        return err;
-    }
-    err = snd_pcm_hw_params_get_period_size(params, &size, &dir);
-    if (err < 0) {
-        printf("Unable to get period size for playback: %s\n", snd_strerror(err));
-        return err;
-    }
-    period_size = size;
-    /* write the parameters to device */
-    err = snd_pcm_hw_params(handle, params);
-    if (err < 0) {
-        printf("Unable to set hw params for playback: %s\n", snd_strerror(err));
-        return err;
-    }
-    return 0;
-}
-
-
-static int set_swparams(snd_pcm_t *handle, snd_pcm_sw_params_t *swparams){
-    int err;
-
-    /* get the current swparams */
-    err = snd_pcm_sw_params_current(handle, swparams);
-    if (err < 0) {
-        printf("Unable to determine current swparams for playback: %s\n", snd_strerror(err));
-        return err;
-    }
-    /* start the transfer when the buffer is almost full: */
-    /* (buffer_size / avail_min) * avail_min */
-    err = snd_pcm_sw_params_set_start_threshold(handle, swparams, (buffer_size / period_size) * period_size);
-    if (err < 0) {
-        printf("Unable to set start threshold mode for playback: %s\n", snd_strerror(err));
-        return err;
-    }
-    /* allow the transfer when at least period_size samples can be processed */
-    /* or disable this mechanism when period event is enabled (aka interrupt like style processing) */
-    err = snd_pcm_sw_params_set_avail_min(handle, swparams, period_event ? buffer_size : period_size);
-    if (err < 0) {
-        printf("Unable to set avail min for playback: %s\n", snd_strerror(err));
-        return err;
-    }
-    /* enable period events when requested */
-    if (period_event) {
-        err = snd_pcm_sw_params_set_period_event(handle, swparams, 1);
-        if (err < 0) {
-            printf("Unable to set period event: %s\n", snd_strerror(err));
-            return err;
-        }
-    }
-    /* write the parameters to the playback device */
-    err = snd_pcm_sw_params(handle, swparams);
-    if (err < 0) {
-        printf("Unable to set sw params for playback: %s\n", snd_strerror(err));
-        return err;
-    }
-    return 0;
-}
-
-/*
- *   Transfer method - write and wait for room in buffer using poll
- */
-
-static int wait_for_poll(snd_pcm_t *handle, struct pollfd *ufds, unsigned int count){
-    unsigned short revents;
-
-    while (1) {
-        poll(ufds, count, -1);
-        snd_pcm_poll_descriptors_revents(handle, ufds, count, &revents);
-        if (revents & POLLERR)
-            return -EIO;
-        if (revents & POLLOUT)
-            return 0;
-    }
-}
-
-static int write_and_poll_loop(snd_pcm_t *handle,
-                   signed short *samples,
-                   snd_pcm_channel_area_t *areas,
-                   CircBuf *iq_buf, int lo_freq){
-    struct pollfd *ufds;
+void start_tx_chain(
+        MCS *mcs,
+        CircBuf *iq_buf,
+        CircBuf *sample_buf
+        ){
     double phase = 0;
-    signed short *ptr;
-    int err, count, cptr, init;
+    int period_size = 128; /*not sure if this really matters for the loopback device*/
+    int lo_freq = mcs->carrier_freq_hz;
     FILE *plbk_raw = fopen("plbk_raw.s16", "w");
     //FILE *plbk_raw = NULL;
 
-    count = snd_pcm_poll_descriptors_count (handle);
-    if (count <= 0) {
-        printf("Invalid poll descriptors count\n");
-        return count;
+    for (int i=0;i<10;i++){
+        run_front_end_calculation(sample_buf, period_size, &phase, iq_buf, lo_freq, plbk_raw);
     }
 
-    ufds = malloc(sizeof(struct pollfd) * count);
-    if (ufds == NULL) {
-        printf("No enough memory\n");
-        return -ENOMEM;
-    }
-    if ((err = snd_pcm_poll_descriptors(handle, ufds, count)) < 0) {
-        printf("Unable to obtain poll descriptors for playback: %s\n", snd_strerror(err));
-        return err;
-    }
-
-    init = 1;
-    while (1) {
-        if (!init) {
-            err = wait_for_poll(handle, ufds, count);
-            if (err < 0) {
-                if (snd_pcm_state(handle) == SND_PCM_STATE_XRUN ||
-                    snd_pcm_state(handle) == SND_PCM_STATE_SUSPENDED) {
-                    err = snd_pcm_state(handle) == SND_PCM_STATE_XRUN ? -EPIPE : -ESTRPIPE;
-                    if (xrun_recovery(handle, err) < 0) {
-                        printf("Write error: %s\n", snd_strerror(err));
-                        exit(EXIT_FAILURE);
-                    }
-                    init = 1;
-                } else {
-                    printf("Wait for poll failed\n");
-                    return err;
-                }
-            }
-        }
-
-
-        run_front_end_calculation(areas, 0, period_size, &phase, iq_buf, lo_freq, plbk_raw);
-
-        ptr = samples;
-        cptr = period_size;
-        while (cptr > 0) {
-            err = snd_pcm_writei(handle, ptr, cptr);
-            if (err < 0) {
-                if (xrun_recovery(handle, err) < 0) {
-                    printf("Write error: %s\n", snd_strerror(err));
-                    exit(EXIT_FAILURE);
-                }
-                init = 1;
-                break;  /* skip one period */
-            }
-            if (snd_pcm_state(handle) == SND_PCM_STATE_RUNNING)
-                init = 0;
-            ptr += err * channels;
-            cptr -= err;
-            if (cptr == 0)
-                break;
-            /* it is possible, that the initial buffer cannot store */
-            /* all data from the last period, so wait awhile */
-            err = wait_for_poll(handle, ufds, count);
-            if (err < 0) {
-                if (snd_pcm_state(handle) == SND_PCM_STATE_XRUN ||
-                    snd_pcm_state(handle) == SND_PCM_STATE_SUSPENDED) {
-                    err = snd_pcm_state(handle) == SND_PCM_STATE_XRUN ? -EPIPE : -ESTRPIPE;
-                    if (xrun_recovery(handle, err) < 0) {
-                        printf("Write error: %s\n", snd_strerror(err));
-                        exit(EXIT_FAILURE);
-                    }
-                    init = 1;
-                } else {
-                    printf("Wait for poll failed\n");
-                    return err;
-                }
-            }
-        }
-    }
-}
-
-static struct transfer_method transfer_methods[] = {
-    { "write", SND_PCM_ACCESS_RW_INTERLEAVED, NULL },
-    { "write_and_poll", SND_PCM_ACCESS_RW_INTERLEAVED, write_and_poll_loop },
-    { "async", SND_PCM_ACCESS_RW_INTERLEAVED, NULL},
-    { "async_direct", SND_PCM_ACCESS_MMAP_INTERLEAVED, NULL},
-    { "direct_interleaved", SND_PCM_ACCESS_MMAP_INTERLEAVED, NULL},
-    { "direct_noninterleaved", SND_PCM_ACCESS_MMAP_NONINTERLEAVED, NULL},
-    { "direct_write", SND_PCM_ACCESS_MMAP_INTERLEAVED, NULL},
-    { NULL, SND_PCM_ACCESS_RW_INTERLEAVED, NULL }
-};
-
-
-void start_tx_chain(MCS *mcs, CircBuf *iq_buf){
-    snd_pcm_t *handle;
-    int err, morehelp;
-    rate = mcs->output_sample_rate_hz;
-    freq = mcs->carrier_freq_hz;
-
-    snd_pcm_hw_params_t *hwparams;
-    snd_pcm_sw_params_t *swparams;
-
-    signed short *samples;
-    unsigned int chn;
-    snd_pcm_channel_area_t *areas;
-
-    snd_pcm_hw_params_alloca(&hwparams);
-    snd_pcm_sw_params_alloca(&swparams);
-
-    if (format == SND_PCM_FORMAT_LAST)
-        format = SND_PCM_FORMAT_S16;
-    if (!snd_pcm_format_linear(format) &&
-        !(format == SND_PCM_FORMAT_FLOAT_LE ||
-          format == SND_PCM_FORMAT_FLOAT_BE)) {
-        printf("Invalid (non-linear/float) format %s\n",
-               optarg);
-        return;
-    }
-
-    err = snd_output_stdio_attach(&output, stdout, 0);
-    if (err < 0) {
-        printf("Output failed: %s\n", snd_strerror(err));
-        return;
-    }
-    printf("Playback device is %s\n", device);
-    printf("Stream parameters are %uHz, %s, %u channels\n", rate, snd_pcm_format_name(format), channels);
-    printf("Using transfer method: %s\n", transfer_methods[method].name);
-    fflush(stdout);
-
-    if ((err = snd_pcm_open(&handle, device, SND_PCM_STREAM_PLAYBACK, 0)) < 0) {
-        printf("Playback open error: %s\n", snd_strerror(err));
-        return;
-    }
-
-    if ((err = set_hwparams(handle, hwparams, transfer_methods[method].access, rate)) < 0) {
-        printf("Setting of hwparams failed: %s\n", snd_strerror(err));
-        exit(EXIT_FAILURE);
-    }
-    if ((err = set_swparams(handle, swparams)) < 0) {
-        printf("Setting of swparams failed: %s\n", snd_strerror(err));
-        exit(EXIT_FAILURE);
-    }
-
-    if (verbose > 0)
-        snd_pcm_dump(handle, output);
-
-    samples = malloc((period_size * channels * snd_pcm_format_physical_width(format)) / 8);
-    if (samples == NULL) {
-        printf("No enough memory\n");
-        exit(EXIT_FAILURE);
-    }
-
-    areas = calloc(channels, sizeof(snd_pcm_channel_area_t));
-    if (areas == NULL) {
-        printf("No enough memory\n");
-        exit(EXIT_FAILURE);
-    }
-    for (chn = 0; chn < channels; chn++) {
-        areas[chn].addr = samples;
-        areas[chn].first = chn * snd_pcm_format_physical_width(format);
-        areas[chn].step = channels * snd_pcm_format_physical_width(format);
-    }
-
-    printf("starting transfer loop.\n");
-    fflush(stdout);
-
-    err = transfer_methods[method].transfer_loop(handle, samples, areas, iq_buf, mcs->carrier_freq_hz);
-    if (err < 0)
-        printf("Transfer failed: %s\n", snd_strerror(err));
-
-    free(areas);
-    free(samples);
-    snd_pcm_close(handle);
     return;
 }
 
 
-void start_rx_chain(MCS *mcs){
+void start_rx_chain(
+        MCS *mcs,
+        CircBuf *sample_c_buf
+    ){
     // read data from input buffer
     int i;
     int err;
@@ -485,65 +122,7 @@ void start_rx_chain(MCS *mcs){
     int16_t buf[buf_size];
     int rate = mcs->input_sample_rate_hz;
     int lo_freq = mcs->carrier_freq_hz;
-    snd_pcm_t *capture_handle;
-    snd_pcm_hw_params_t *hw_params;
 
-    if ((err = snd_pcm_open(&capture_handle, device, SND_PCM_STREAM_CAPTURE, 0)) < 0) {
-        fprintf (stderr, "cannot open audio device %s (%s)\n",
-             device,
-             snd_strerror(err));
-        exit(1);
-    }
-
-    if ((err = snd_pcm_hw_params_malloc (&hw_params)) < 0) {
-        fprintf (stderr, "cannot allocate hardware parameter structure (%s)\n",
-             snd_strerror(err));
-        exit(1);
-    }
-
-    if ((err = snd_pcm_hw_params_any(capture_handle, hw_params)) < 0) {
-        fprintf (stderr, "cannot initialize hardware parameter structure (%s)\n",
-             snd_strerror(err));
-        exit(1);
-    }
-
-    if ((err = snd_pcm_hw_params_set_access(capture_handle, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED)) < 0) {
-        fprintf (stderr, "cannot set access type (%s)\n",
-             snd_strerror(err));
-        exit(1);
-    }
-
-    if ((err = snd_pcm_hw_params_set_format(capture_handle, hw_params, format)) < 0) {
-        fprintf (stderr, "cannot set sample format (%s)\n",
-             snd_strerror(err));
-        exit(1);
-    }
-
-    if ((err = snd_pcm_hw_params_set_rate_near(capture_handle, hw_params, &rate, 0)) < 0) {
-        fprintf (stderr, "cannot set sample rate (%s)\n",
-             snd_strerror(err));
-        exit(1);
-    }
-
-    if ((err = snd_pcm_hw_params_set_channels(capture_handle, hw_params, 1)) < 0) {
-        fprintf (stderr, "cannot set channel count (%s)\n",
-             snd_strerror(err));
-        exit(1);
-    }
-
-    if ((err = snd_pcm_hw_params(capture_handle, hw_params)) < 0) {
-        fprintf (stderr, "cannot set parameters (%s)\n",
-             snd_strerror(err));
-        exit(1);
-    }
-
-    snd_pcm_hw_params_free(hw_params);
-
-    if ((err = snd_pcm_prepare(capture_handle)) < 0) {
-        fprintf (stderr, "cannot prepare audio interface for use (%s)\n",
-             snd_strerror(err));
-        exit(1);
-    }
 
     FILE *file_raw = fopen("cap_raw.s16", "w");
     FILE *file_flt = fopen("cap_flt.fc32", "w");
@@ -559,14 +138,6 @@ void start_rx_chain(MCS *mcs){
     static double max_phase = 2. * M_PI;
     double phase = 0;
     double step = max_phase*lo_freq/(double)rate;
-    int format_bits = snd_pcm_format_width(format);
-    unsigned int maxval = (1 << (format_bits - 1)) - 1;
-    int bps = format_bits / 8;  /* bytes per sample */
-    int phys_bps = snd_pcm_format_physical_width(format) / 8;
-    int big_endian = snd_pcm_format_big_endian(format) == 1;
-    int to_unsigned = snd_pcm_format_unsigned(format) == 1;
-    int is_float = (format == SND_PCM_FORMAT_FLOAT_LE ||
-            format == SND_PCM_FORMAT_FLOAT_BE);
     fcomplex sample_buf[buf_size];
     int filt_in_buf_size = buf_size + mcs->rx_filter->num_taps - 1;
     fcomplex filt_in_buf[filt_in_buf_size];
@@ -594,11 +165,7 @@ void start_rx_chain(MCS *mcs){
     float freq_log[buf_size*2];
     while (1) {
         /* Get Raw Samples */
-        if ((err = snd_pcm_readi(capture_handle, buf, buf_size)) != buf_size) {
-            fprintf (stderr, "read from audio interface failed (%s)\n",
-                 snd_strerror(err));
-            exit(1);
-        }
+        read_buf(sample_c_buf, buf_size, buf);
         fwrite(buf, sizeof(int16_t), buf_size, file_raw);
 
         /* RF Front End Simulation */
@@ -710,7 +277,6 @@ void start_rx_chain(MCS *mcs){
 
     fftw_destroy_plan(plan);
     fftw_cleanup();
-    snd_pcm_close (capture_handle);
     exit(0);
 
 
