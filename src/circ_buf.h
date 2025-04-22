@@ -16,6 +16,6 @@ typedef struct circBuf CircBuf;
 
 int write_buf(void *in_buf, int len, CircBuf *me, int block);
 
-int read_buf(CircBuf *me, int len, void *out_buf);
+int read_buf(CircBuf *me, int len, void *out_buf, int block);
 
 #endif

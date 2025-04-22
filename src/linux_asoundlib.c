@@ -57,19 +57,20 @@ static void run_front_end_calculation(
               double *_phase, /*lo phase at time of the first sample*/
               CircBuf *iq_buf, /*iq samples to be mixed*/
               int lo_freq, /*frequency of lo*/
+              int sample_rate_hz, /*output sample rate in hz*/
               FILE *file /*output file*/
         ){
     //printf("Front end: lo_freq(%d), rate(%d)\n", lo_freq, rate);
-    static double max_phase = 2. * M_PI;
+    static double max_phase = 2.0 * M_PI;
     double phase = *_phase;
-    double step = max_phase*lo_freq/(double)rate;
+    double step = max_phase*lo_freq/(double)sample_rate_hz;
     fcomplex sample;
     int num_read;
     int num_written;
 
     while (count-- > 0) {
         // read a sample from the buffer
-        num_read = read_buf(iq_buf, 1, &sample);
+        num_read = read_buf(iq_buf, 1, &sample, 0);
         // if there's nothing to read, play the carrier.
         if (num_read == 0)
             sample = 1 + 0*I;
@@ -81,9 +82,9 @@ static void run_front_end_calculation(
         inter = fmin(inter, 1);
         inter = fmax(inter, -1);
         res = inter * maxval;
-        while (write_buf(&res, bps, sample_buf, 1) != bps)
+        while (write_buf(&res, 1, sample_buf, 1) == 0)
             sleep(0.01);
-        fwrite(&res, bps, 1, file);
+        //fwrite(&res, bps, 1, file);
         //printf("fe calc: I(%f) * sin(%f) + Q(%f) * cos(%f) * maxval(%d) = res(%d); \n", creal(sample), phase, cimag(sample), phase, maxval, res);
         phase += step;
         if (phase >= max_phase)
@@ -100,11 +101,12 @@ void start_tx_chain(
     double phase = 0;
     int period_size = 128; /*not sure if this really matters for the loopback device*/
     int lo_freq = mcs->carrier_freq_hz;
-    FILE *plbk_raw = fopen("plbk_raw.s16", "w");
-    //FILE *plbk_raw = NULL;
+    //FILE *plbk_raw = fopen("plbk_3_raw.s16", "w");
+    FILE *plbk_raw = NULL;
+    sample_buf->stream = fopen("plbk_3_raw.s16", "w");
 
-    for (int i=0;i<10;i++){
-        run_front_end_calculation(sample_buf, period_size, &phase, iq_buf, lo_freq, plbk_raw);
+    for (int i=0;i<200;i++){
+        run_front_end_calculation(sample_buf, period_size, &phase, iq_buf, lo_freq, mcs->output_sample_rate_hz, plbk_raw);
     }
 
     return;
@@ -124,16 +126,16 @@ void start_rx_chain(
     int lo_freq = mcs->carrier_freq_hz;
 
 
-    FILE *file_raw = fopen("cap_raw.s16", "w");
-    FILE *file_flt = fopen("cap_flt.fc32", "w");
-    FILE *file_iq = fopen("cap_iq.fc32", "w");
-    FILE *file_course_fft = fopen("cap_course.fft", "w");
-    FILE *file_course = fopen("cap_course.fc32", "w");
-    FILE *file_mnm = fopen("cap_mnm.fc32", "w");
-    FILE *file_mnm_log = fopen("cap_mnm_log.fc32", "w");
-    FILE *file_ffs = fopen("cap_ffs.fc32", "w");
-    FILE *file_ffs_ofst = fopen("cap_ffs_log.f3c32", "w");
-    FILE *file_const = fopen("cap_const.const", "w");
+    FILE *file_raw = fopen("cap_1_raw.s16", "w");
+    FILE *file_iq = fopen("cap_2_iq.fc32", "w");
+    FILE *file_flt = fopen("cap_3_flt.fc32", "w");
+    FILE *file_course_fft = fopen("cap_4_course.fft", "w");
+    FILE *file_course = fopen("cap_4_course.fc32", "w");
+    FILE *file_mnm = fopen("cap_5_mnm.fc32", "w");
+    FILE *file_mnm_log = fopen("cap_5_mnm_log.fc32", "w");
+    FILE *file_ffs = fopen("cap_6_ffs.fc32", "w");
+    FILE *file_ffs_ofst = fopen("cap_6_ffs_log.f3c32", "w");
+    FILE *file_const = fopen("cap_7_const.const", "w");
     //printf("Front end: lo_freq(%d), rate(%d)\n", lo_freq, rate);
     static double max_phase = 2. * M_PI;
     double phase = 0;
@@ -165,8 +167,10 @@ void start_rx_chain(
     float freq_log[buf_size*2];
     while (1) {
         /* Get Raw Samples */
-        read_buf(sample_c_buf, buf_size, buf);
+        while (read_buf(sample_c_buf, buf_size, buf, 1) == 0)
+            sleep(0.01);
         fwrite(buf, sizeof(int16_t), buf_size, file_raw);
+        fflush(file_raw);
 
         /* RF Front End Simulation */
         for (int i=0;i<buf_size;i++){
@@ -177,6 +181,7 @@ void start_rx_chain(
                 phase -= max_phase;
         }
         fwrite(sample_buf, sizeof(fcomplex), buf_size, file_iq);
+        fflush(file_iq);
 
         /* Matched Filter */
         int len_filt_out_buf;
@@ -185,6 +190,7 @@ void start_rx_chain(
         filt_out_buf = convolve_valid(filt_in_buf, filt_in_buf_size, mcs->rx_filter, &len_filt_out_buf);
         assert(buf_size == len_filt_out_buf);
         fwrite(filt_out_buf, sizeof(fcomplex), buf_size, file_flt);
+        fflush(file_flt);
 
         /* Course Freq Sync */
         for (int i=0;i<buf_size;i++){
@@ -193,6 +199,7 @@ void start_rx_chain(
         fftw_execute(plan);
         rewind(file_course_fft);
         fwrite(fft_buf, sizeof(double complex), buf_size, file_course_fft);
+        fflush(file_course_fft);
         max = 0;
         for (int i=1;i<buf_size;i++){
            if (cabs(fft_buf[i]) > cabs(fft_buf[max]))
@@ -208,6 +215,7 @@ void start_rx_chain(
             filt_out_buf[i] = filt_out_buf[i] * exp(I*2*M_PI*(freq_offset_est_hz/2)*t);
         }
         fwrite(filt_out_buf, sizeof(fcomplex), buf_size, file_course);
+        fflush(file_course);
 
         /* Time Sync */
         i_in = 0;
@@ -235,7 +243,10 @@ void start_rx_chain(
         fcomplex *costas_in = &out[2];
         int len_samples = i_out-2;
         fwrite(mnm_log, sizeof(float), mu_log_idx, file_mnm_log);
+        fflush(file_mnm_log);
         fwrite(&out[2], sizeof(fcomplex), i_out-2, file_mnm);
+        fflush(file_mnm);
+
 
         /* Fine Frequency Sync */
         int N = len_samples;
@@ -256,8 +267,11 @@ void start_rx_chain(
                 costas_phase += 2*M_PI;
         }
         fwrite(freq_log, sizeof(float), freq_log_idx, file_ffs_ofst);
+        fflush(file_ffs_ofst);
         fwrite(costas_out, sizeof(fcomplex), N, file_ffs);
+        fflush(file_ffs);
         fwrite(costas_out, sizeof(fcomplex), N, file_const);
+        fflush(file_const);
 
         /* Demodulate */
 

@@ -54,7 +54,7 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf, FILE *plbk_sym){
     fcomplex *sample_buf = malloc(sample_buf_len);
 
     // read data from circular buffer
-    int num_read = read_buf(buf, max_L2_packet_size_bytes, data_buf);
+    int num_read = read_buf(buf, max_L2_packet_size_bytes, data_buf, 0);
 
     // channel coding
     if (mcs->channel_coding==0){
@@ -154,9 +154,9 @@ int main(){
     mcs0.symbol_list_int = malloc(mcs0.num_symbols);
     mcs0.symbol_list_complex = malloc(mcs0.num_symbols * sizeof(fcomplex));
     mcs0.symbol_list_int[0] = 0;
-    mcs0.symbol_list_complex[0] = (fcomplex) 1.0 * 0.0I;
+    mcs0.symbol_list_complex[0] = (fcomplex) 1.0 + 0.0I;
     mcs0.symbol_list_int[1] = 1;
-    mcs0.symbol_list_complex[1] = (fcomplex) -1.0* 0.0I;
+    mcs0.symbol_list_complex[1] = (fcomplex) -1.0 + 0.0I;
     mcs0.output_sample_rate_hz = 8000;
     mcs0.symbol_rate_hz = 100;
     mcs0.carrier_freq_hz = 440;
@@ -173,13 +173,13 @@ int main(){
     mcs1.symbol_list_int = malloc(mcs1.num_symbols);
     mcs1.symbol_list_complex = malloc(mcs1.num_symbols * sizeof(fcomplex));
     mcs1.symbol_list_int[0] = 0;
-    mcs1.symbol_list_complex[0] = (fcomplex) 1.0* 0.0I;
+    mcs1.symbol_list_complex[0] = (fcomplex) 1.0 + 0.0I;
     mcs1.symbol_list_int[1] = 1;
-    mcs1.symbol_list_complex[1] = (fcomplex) -1.0* 0.0I;
+    mcs1.symbol_list_complex[1] = (fcomplex) -1.0 + 0.0I;
     mcs1.symbol_list_int[2] = 2;
-    mcs1.symbol_list_complex[2] = (fcomplex) 0.0* 1.0I;
+    mcs1.symbol_list_complex[2] = (fcomplex) 0.0 + 1.0I;
     mcs1.symbol_list_int[3] = 3;
-    mcs1.symbol_list_complex[3] = (fcomplex) 0.0* -1.0I;
+    mcs1.symbol_list_complex[3] = (fcomplex) 0.0 + -1.0I;
     mcs1.output_sample_rate_hz = 8000;
     mcs1.symbol_rate_hz = 100;
     mcs1.carrier_freq_hz = 440;
@@ -202,19 +202,19 @@ int main(){
     fe_buf->read_idx = 0;
     fe_buf->write_idx = 0;
     fe_buf->count = 0;
-    fe_buf->stream = fopen("plbk_iq.fc32", "w");
+    fe_buf->stream = fopen("plbk_2_iq.fc32", "w");
     //fe_buf->stream = NULL;
-    char* sample_input_buffer = create_shared_memory(max_L2_packet_size_samples * sizeof(fcomplex));
+    char* sample_input_buffer = create_shared_memory(10000 * sizeof(short));
     struct circBuf *sample_buf = create_shared_memory(sizeof(struct circBuf));
-    sample_buf->element_size = sizeof(fcomplex);
+    sample_buf->element_size = sizeof(short);
     sample_buf->start = sample_input_buffer;
-    sample_buf->len = max_L2_packet_size_samples;
+    sample_buf->len = 10000;
     sample_buf->read_idx = 0;
     sample_buf->write_idx = 0;
     sample_buf->count = 0;
-    sample_buf->stream = fopen("plbk_raw_buf_tap.s16", "w");
+    sample_buf->stream = NULL; // set this in subproc
 
-    FILE *plbk_sym = fopen("plbk_sym.fc32", "a");
+    FILE *plbk_sym = fopen("plbk_1_sym.fc32", "w");
 
     spawn_rx_chain(cur_mcs, sample_buf);
 
@@ -227,7 +227,6 @@ int main(){
     tx_encode_packet(&in_buf, cur_mcs, fe_buf, plbk_sym);
     x = write_buf(myArray, 24, &in_buf, 1);
     tx_encode_packet(&in_buf, cur_mcs, fe_buf, plbk_sym);
-    fclose(plbk_sym);
 
     spawn_tx_chain(cur_mcs, fe_buf, sample_buf);
 
@@ -243,5 +242,6 @@ int main(){
             tx_encode_packet(&in_buf, &mcs1, fe_buf, plbk_sym);
         }
     }
+    fclose(plbk_sym);
 };
 
