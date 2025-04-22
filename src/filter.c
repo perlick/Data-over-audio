@@ -6,13 +6,25 @@
 
 #include <string.h>
 
+/* Create a root-raised cosine filter.
+
+symbol_len: number of samples per symbol
+beta: lowering beta will lower bandwidth usage and increase filter tails.
+Ts: number of symbols over which filter should apply
+*/
 Filter *create_filter_rrc1(float symbol_len, float beta, float Ts){
-    int num_taps = (int) (symbol_len * Ts); 
+    int num_taps = (int) (symbol_len * Ts);
     if (num_taps%2==1)
         num_taps+=1;
-    return create_filter_rrc(num_taps, beta, Ts);
+    return create_filter_rrc(num_taps, beta, symbol_len);
 }
 
+/* Create a root-raised cosine filter.
+
+num_taps: number of taps in filter
+beta: lowering beta will lower bandwidth usage and increase filter tails.
+Ts: number of samples per symbol
+*/
 Filter *create_filter_rrc(int num_taps, float beta, float Ts){
     Filter *filt = malloc(sizeof(Filter));
     filt->num_taps = num_taps;
@@ -38,7 +50,7 @@ Filter *create_filter_rrc(int num_taps, float beta, float Ts){
     }
     scale = 0.6/max;
     for (int i=0;i<num_taps;i++)
-        filt->taps[i] = filt->taps[i] * scale; 
+        filt->taps[i] = filt->taps[i] * scale;
 
     FILE *filter_cap = fopen("filter.f32", "w");
     fwrite(filt->taps, sizeof(float), num_taps, filter_cap);
@@ -47,7 +59,7 @@ Filter *create_filter_rrc(int num_taps, float beta, float Ts){
 }
 
 Filter *create_filter_rc1(float symbol_len, float beta, float Ts){
-    int num_taps = (int) (symbol_len * Ts); 
+    int num_taps = (int) (symbol_len * Ts);
     if (num_taps%2==1)
         num_taps+=1;
     return create_filter_rc(num_taps, beta, Ts);
@@ -90,7 +102,7 @@ fcomplex *convolve_valid(fcomplex *h, int lenH, Filter *filter, int* lenY){
     for (i=0; i<nconv; i++){
         x_start = 0;
         x_end = lenX;
-        h_start = i; 
+        h_start = i;
         for(j=x_start; j<x_end; j++){
               y[i] += h[h_start++]*filter->taps[j];
         }
@@ -98,6 +110,13 @@ fcomplex *convolve_valid(fcomplex *h, int lenH, Filter *filter, int* lenY){
     return y;
 }
 
+/* Convolve signal and filter.
+
+h: signal
+lenH: length of H in elements
+filter: filter to be used
+lenY: length of returned signal
+*/
 fcomplex *convolve(fcomplex *h, int lenH, Filter *filter, int* lenY){
     int lenX = filter->num_taps;
     int nconv = lenH+lenX-1;
@@ -105,6 +124,7 @@ fcomplex *convolve(fcomplex *h, int lenH, Filter *filter, int* lenY){
     int i,j,h_start,x_start,x_end;
 
     fcomplex *y = calloc(nconv, sizeof(fcomplex));
+    memset(y, 0, nconv*sizeof(fcomplex));
 
     for (i=0; i<nconv; i++){
         x_start = fmax(0,i-lenH+1);

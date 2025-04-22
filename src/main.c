@@ -52,9 +52,8 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf, FILE *plbk_sym){
     int samples_per_symbol = mcs->input_sample_rate_hz / mcs->symbol_rate_hz;
     int sample_buf_len = symbol_buf_len * samples_per_symbol;
     fcomplex *sample_buf = calloc(sample_buf_len, sizeof(fcomplex));
-    for (int i = 0; i < sample_buf_len; i++) {
-        sample_buf[i] = 0; // Initialize all elements to 0
-    }
+    for (int i = 0; i < sample_buf_len; i++)
+        sample_buf[i] = 0;
 
     // read data from circular buffer
     int num_read = read_buf(buf, max_L2_packet_size_bytes, data_buf, 0);
@@ -96,7 +95,6 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf, FILE *plbk_sym){
     }
 
     // do pulse shaping with matched filter. upscaling by samples per symbol
-    // For now, do not do pulse shaping, just upscale
     int num_samples;
     num_samples = num_symbols * samples_per_symbol;
     for(int i=0;i<num_symbols;i++){
@@ -166,8 +164,8 @@ int main(){
     mcs0.input_sample_rate_hz = 8000;
     mcs0.order = 2;
     mcs0.mnm_aggression = 0.3f;
-    mcs0.tx_filter = create_filter_rrc1(12.625f, 0.35f, (float) mcs0.output_sample_rate_hz / mcs0.symbol_rate_hz);
-    mcs0.rx_filter = create_filter_rrc1(12.625f, 0.35f, (float) mcs0.input_sample_rate_hz / mcs0.symbol_rate_hz);
+    mcs0.tx_filter = create_filter_rrc1((float) mcs0.output_sample_rate_hz / mcs0.symbol_rate_hz, 0.35f, 12.625f);
+    mcs0.rx_filter = create_filter_rrc1((float) mcs0.input_sample_rate_hz / mcs0.symbol_rate_hz, 0.35f, 12.625f);
 
     struct mcs mcs1;
     mcs1.channel_coding = 0;
@@ -189,8 +187,8 @@ int main(){
     mcs1.input_sample_rate_hz = 8000;
     mcs1.order = 4;
     mcs1.mnm_aggression = 0.3f;
-    mcs1.tx_filter = create_filter_rrc1(12.625f, 0.35f, (float) mcs1.output_sample_rate_hz / mcs1.symbol_rate_hz);
-    mcs1.rx_filter = create_filter_rrc1(12.625f, 0.35f, (float) mcs1.input_sample_rate_hz / mcs1.symbol_rate_hz);
+    mcs1.tx_filter = create_filter_rrc1((float) mcs1.output_sample_rate_hz / mcs1.symbol_rate_hz, 0.35f, 12.625f);
+    mcs1.rx_filter = create_filter_rrc1((float) mcs1.input_sample_rate_hz / mcs1.symbol_rate_hz, 0.35f, 12.625f);
 
     struct mcs *cur_mcs = &mcs0;
 

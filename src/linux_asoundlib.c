@@ -105,7 +105,7 @@ void start_tx_chain(
     FILE *plbk_raw = NULL;
     sample_buf->stream = fopen("plbk_3_raw.s16", "w");
 
-    for (int i=0;i<200;i++){
+    for (int i=0;i<500;i++){
         run_front_end_calculation(sample_buf, period_size, &phase, iq_buf, lo_freq, mcs->output_sample_rate_hz, plbk_raw);
     }
 
@@ -137,7 +137,7 @@ void start_rx_chain(
     FILE *file_ffs_ofst = fopen("cap_6_ffs_log.f3c32", "w");
     FILE *file_const = fopen("cap_7_const.const", "w");
     //printf("Front end: lo_freq(%d), rate(%d)\n", lo_freq, rate);
-    static double max_phase = 2. * M_PI;
+    static double max_phase = 2.0 * M_PI;
     double phase = 0;
     double step = max_phase*lo_freq/(double)rate;
     fcomplex sample_buf[buf_size];
