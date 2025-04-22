@@ -51,7 +51,10 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf, FILE *plbk_sym){
     }
     int samples_per_symbol = mcs->input_sample_rate_hz / mcs->symbol_rate_hz;
     int sample_buf_len = symbol_buf_len * samples_per_symbol;
-    fcomplex *sample_buf = malloc(sample_buf_len);
+    fcomplex *sample_buf = calloc(sample_buf_len, sizeof(fcomplex));
+    for (int i = 0; i < sample_buf_len; i++) {
+        sample_buf[i] = 0; // Initialize all elements to 0
+    }
 
     // read data from circular buffer
     int num_read = read_buf(buf, max_L2_packet_size_bytes, data_buf, 0);
