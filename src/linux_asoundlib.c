@@ -235,7 +235,7 @@ void start_rx_chain(
             mm_val = creal(y - x);
             mu += ((float) samples_per_symbol) + mcs->mnm_aggression*mm_val;
             mnm_log[mu_log_idx++] = mm_val;
-            mnm_log[mu_log_idx++] = mu;
+            mnm_log[mu_log_idx++] = mu - ((float) samples_per_symbol) ;
             i_in += (int) trunc(mu);
             mu = mu - trunc(mu);
             i_out += 1;

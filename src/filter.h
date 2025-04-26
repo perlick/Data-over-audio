@@ -11,7 +11,9 @@ struct filter {
 };
 typedef struct filter Filter;
 
-Filter *create_filter_rrc1(float symbol_len, float beta, float Ts);
+Filter *RootRaisedCosineFilter(float beta, float T, float ts);
+
+Filter *create_filter_rrc1(float symbol_len, float beta, int Ts);
 
 Filter *create_filter_rrc(int num_taps, float beta, float Ts);
 
@@ -22,5 +24,7 @@ Filter *create_filter_rc(int num_taps, float beta, float Ts);
 fcomplex *convolve_valid(fcomplex *h, int lenH, Filter *x, int* lenY);
 
 fcomplex *convolve(fcomplex *h, int lenH, Filter *x, int* lenY);
+
+void save_filter(Filter* filter, const char *pathname);
 
 #endif

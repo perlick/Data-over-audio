@@ -6,3 +6,4 @@ test:
 	gcc -g test/pcm_min.c -lasound -o test/pcm_min.out
 	gcc -g test/sin-example.c -lasound -lm -o test/sin-example.out
 	gcc -g test/cap_min.c -lasound -o test/cap_min.out
+	gcc -g test/gen_filters.c src/filter.c -lm -o test/gen_filters.o

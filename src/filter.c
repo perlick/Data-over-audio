@@ -6,13 +6,67 @@
 
 #include <string.h>
 
+float sinc(float x)
+{
+  return x == 0.0 ? 1.0 : sin(M_PI*x)/M_PI/x;
+}
+
+/* Create root raised cosine filter
+
+beta:  damping factor
+T:     Half of the symbol duration in seconds
+ts:    time per sample in seconds (reciprocal or sample rate)
+*/
+Filter *RootRaisedCosineFilter(float beta, float T, float ts)
+{
+    Filter *filt = malloc(sizeof(Filter));
+    filt->beta = beta;
+
+    float t;
+    const int Nsymb = 12;
+    const float samp_per_symb = T/ts;
+    filt->Ts=samp_per_symb;
+    unsigned long N = (unsigned long) Nsymb*samp_per_symb+1;
+    filt->num_taps = N;
+    filt->taps = calloc(N, sizeof(float));
+
+    float max = 0.0;
+    float shift = -Nsymb*T/2.0;
+    for(int i=0;i<N;i++)
+    {
+        t = shift+ts*((float) i);
+
+        if(fabs(t) == T/2.0/beta)
+        {
+            filt->taps[i] = M_PI*sinc(1.0/2.0/beta)/Nsymb/T/2.0;
+            continue;
+        }
+        float tv = t/T;
+        float tvb = beta*tv;
+        float t1 = sinc(tv)/T;
+        float t2 = cos(M_PI*tvb);
+        float t3 = 1-pow(2.0*tvb,2);
+        filt->taps[i] = t1*t2/t3;
+        if(filt->taps[i]>max)
+        {
+            max = filt->taps[i];
+        }
+    }
+    //for(int i=0;i<N;i++) filt->taps[i] /= max;
+
+    FILE *filter_cap = fopen("filter.f32", "w");
+    fwrite(filt->taps, sizeof(float), N, filter_cap);
+    fclose(filter_cap);
+    return filt;
+}
+
 /* Create a root-raised cosine filter.
 
 symbol_len: number of samples per symbol
 beta: lowering beta will lower bandwidth usage and increase filter tails.
 Ts: number of symbols over which filter should apply
 */
-Filter *create_filter_rrc1(float symbol_len, float beta, float Ts){
+Filter *create_filter_rrc1(float symbol_len, float beta, int Ts){
     int num_taps = (int) (symbol_len * Ts);
     if (num_taps%2==1)
         num_taps+=1;
@@ -39,8 +93,8 @@ Filter *create_filter_rrc(int num_taps, float beta, float Ts){
         t = i - (num_taps-1)/2;
         if (t==0){
             tap = (1/Ts) * (1+beta*((4/M_PI)-1));
-        //}else if(t==abs(Ts/(4*beta))){
-        //    tap = 0; //beta/(Ts*sqrt(2)) * ((1+(2/M_PI))*sin(M_PI/(4*beta)) + (1+(2/M_PI))*cos(M_PI/(4*beta)));
+        }else if(abs(t)==abs(Ts/(4*beta))){
+            tap = beta/(Ts*sqrt(2)) * ((1+(2/M_PI))*sin(M_PI/(4*beta)) + (1-(2/M_PI))*cos(M_PI/(4*beta)));
         } else {
             tap = (1/Ts) * (sin(M_PI*(t/Ts)*(1-beta)) + 4*beta*(t/Ts)*cos(M_PI*(t/Ts)*(1+beta))) / (M_PI*(t/Ts)*(1-(4*beta*(t/Ts))*(4*beta*(t/Ts))));
         }
@@ -48,9 +102,8 @@ Filter *create_filter_rrc(int num_taps, float beta, float Ts){
         if(fabs(tap) > max)
             max = fabs(tap);
     }
-    scale = 0.6/max;
     for (int i=0;i<num_taps;i++)
-        filt->taps[i] = filt->taps[i] * scale;
+        filt->taps[i] = filt->taps[i] /  max;
 
     FILE *filter_cap = fopen("filter.f32", "w");
     fwrite(filt->taps, sizeof(float), num_taps, filter_cap);
@@ -135,5 +188,17 @@ fcomplex *convolve(fcomplex *h, int lenH, Filter *filter, int* lenY){
         }
     }
     return y;
+}
+
+/* Save a Filter to file
+
+filter: filter to be saved
+pathname: path to save to
+*/
+
+void save_filter(Filter* filter, const char *pathname){
+    FILE *filter_cap = fopen(pathname, "w");
+    fwrite(filter->taps, sizeof(float), filter->num_taps, filter_cap);
+    fclose(filter_cap);
 }
 
