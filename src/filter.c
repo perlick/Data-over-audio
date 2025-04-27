@@ -6,10 +6,14 @@
 
 #include <string.h>
 
-float sinc(float x)
-{
-  return x == 0.0 ? 1.0 : sin(M_PI*x)/M_PI/x;
+double sinc(float x) {
+  if (x == 0.0) {
+    return 1.0;
+  } else {
+    return sin(x) / x;
+  }
 }
+
 
 /* Create root raised cosine filter
 
@@ -103,7 +107,7 @@ Filter *create_filter_rrc(int num_taps, float beta, float Ts){
             max = fabs(tap);
     }
     for (int i=0;i<num_taps;i++)
-        filt->taps[i] = filt->taps[i] /  max;
+        filt->taps[i] = filt->taps[i] * 0.6 / max ;
 
     FILE *filter_cap = fopen("filter.f32", "w");
     fwrite(filt->taps, sizeof(float), num_taps, filter_cap);
@@ -115,7 +119,7 @@ Filter *create_filter_rc1(float symbol_len, float beta, float Ts){
     int num_taps = (int) (symbol_len * Ts);
     if (num_taps%2==1)
         num_taps+=1;
-    return create_filter_rc(num_taps, beta, Ts);
+    return create_filter_rc(num_taps, beta, symbol_len);
 }
 
 Filter *create_filter_rc(int num_taps, float beta, float Ts){
@@ -126,20 +130,26 @@ Filter *create_filter_rc(int num_taps, float beta, float Ts){
     filt->taps = calloc(num_taps, sizeof(float));
 
     float t;
-    float tap, x;
+    float tap, x, max, scale;
+    max = 0;
     for (int i=0;i<num_taps;i++){
         t = i - (num_taps-1)/2;
         x = t/Ts;
         if (x !=0 ){
-            tap = sin(M_PI*x)/(M_PI*x) * cos(M_PI*beta*x) / (1 - (2*beta*t/Ts)*(2*beta*t/Ts));
+            tap = sinc(x) * cos(M_PI*beta*x) / (1 - (2*beta*t/Ts)*(2*beta*t/Ts));
         }else{
             tap = 1;
         }
         filt->taps[i] = tap;
+        if(fabs(tap) > max)
+            max = fabs(tap);
     }
-    //FILE *filter_cap = fopen("filter.f32", "w");
-    //fwrite(filt->taps, sizeof(float), num_taps, filter_cap);
-    //fclose(filter_cap);
+    //for (int i=0;i<num_taps;i++)
+    //    filt->taps[i] = filt->taps[i] * 0.6 / max ;
+
+    FILE *filter_cap = fopen("filter.f32", "w");
+    fwrite(filt->taps, sizeof(float), num_taps, filter_cap);
+    fclose(filter_cap);
     return filt;
 }
 

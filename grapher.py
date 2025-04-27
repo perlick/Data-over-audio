@@ -22,12 +22,16 @@ for file_path in sys.argv[1:]:
         plt.figure(0)
         plt.plot(f[::2], '.-')
         plt.plot(f[1::2], '.-')
+        for point in range(78,len(f[::2]), 80):
+            plt.vlines(x=point, ymin=0, ymax=f[::2][point], colors='red', linestyles='dashed')
     elif os.path.splitext(sys.argv[1])[1] in ['.f32']:
         element_size = 4
         num_elements = int(size/element_size)
         f = struct.unpack('f'*num_elements, x.read(size))
         plt.figure(0)
         plt.plot(f, '.-')
+        for point in range(78,len(f), 80):
+            plt.vlines(x=point, ymin=0, ymax=f[point], colors='red', linestyles='dashed')
     elif os.path.splitext(sys.argv[1])[1] in ['.fc64']:
         element_size = 8
         num_elements = int(size/element_size)
