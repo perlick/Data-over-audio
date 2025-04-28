@@ -71,24 +71,26 @@ static void run_front_end_calculation(
     while (count-- > 0) {
         // read a sample from the buffer
         num_read = read_buf(iq_buf, 1, &sample, 0);
-        // if there's nothing to read, play the carrier.
-        if (num_read == 0)
-            sample = 1 + 0*I;
-
-        short res, i;
-        float inter;
-        // Assumes amplitudes of I and Q do not exceed -1,1
-        inter = creal(sample) * sin(phase) + cimag(sample) * cos(phase);
-        inter = fmin(inter, 1);
-        inter = fmax(inter, -1);
-        res = inter * maxval;
-        while (write_buf(&res, 1, sample_buf, 1) == 0)
+        while (write_buf(&sample, 1, sample_buf, 1) == 0)
             sleep(0.01);
-        //fwrite(&res, bps, 1, file);
-        //printf("fe calc: I(%f) * sin(%f) + Q(%f) * cos(%f) * maxval(%d) = res(%d); \n", creal(sample), phase, cimag(sample), phase, maxval, res);
-        phase += step;
-        if (phase >= max_phase)
-            phase -= max_phase;
+        //// if there's nothing to read, play the carrier.
+        //if (num_read == 0)
+        //    sample = 1 + 0*I;
+
+        //short res, i;
+        //float inter;
+        //// Assumes amplitudes of I and Q do not exceed -1,1
+        //inter = creal(sample) * sin(phase) + cimag(sample) * cos(phase);
+        //inter = fmin(inter, 1);
+        //inter = fmax(inter, -1);
+        //res = inter * maxval;
+        //while (write_buf(&res, 1, sample_buf, 1) == 0)
+        //    sleep(0.01);
+        ////fwrite(&res, bps, 1, file);
+        ////printf("fe calc: I(%f) * sin(%f) + Q(%f) * cos(%f) * maxval(%d) = res(%d); \n", creal(sample), phase, cimag(sample), phase, maxval, res);
+        //phase += step;
+        //if (phase >= max_phase)
+        //    phase -= max_phase;
     }
     *_phase = phase;
 }
@@ -167,21 +169,24 @@ void start_rx_chain(
     float freq_log[buf_size*2];
     while (1) {
         /* Get Raw Samples */
-        while (read_buf(sample_c_buf, buf_size, buf, 1) == 0)
-            sleep(0.01);
-        fwrite(buf, sizeof(int16_t), buf_size, file_raw);
-        fflush(file_raw);
+        //while (read_buf(sample_c_buf, buf_size, buf, 1) == 0)
+        //    sleep(0.01);
+        //fwrite(buf, sizeof(int16_t), buf_size, file_raw);
+        //fflush(file_raw);
 
-        /* RF Front End Simulation */
-        for (int i=0;i<buf_size;i++){
-            scaled = (float) buf[i] / maxval;
-            sample_buf[i] = scaled * sin(phase) + scaled * cos(phase) * I;
-            phase += step;
-            if (phase >= max_phase)
-                phase -= max_phase;
-        }
-        fwrite(sample_buf, sizeof(fcomplex), buf_size, file_iq);
-        fflush(file_iq);
+        ///* RF Front End Simulation */
+        //for (int i=0;i<buf_size;i++){
+        //    scaled = (float) buf[i] / maxval;
+        //    sample_buf[i] = scaled * sin(phase) + scaled * cos(phase) * I;
+        //    phase += step;
+        //    if (phase >= max_phase)
+        //        phase -= max_phase;
+        //}
+        //fwrite(sample_buf, sizeof(fcomplex), buf_size, file_iq);
+        //fflush(file_iq);
+
+        while (read_buf(sample_c_buf, buf_size, sample_buf, 1) == 0)
+            sleep(0.01);
 
         /* Matched Filter */
         int len_filt_out_buf;

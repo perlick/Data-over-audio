@@ -164,8 +164,8 @@ int main(){
     mcs0.input_sample_rate_hz = 8000;
     mcs0.order = 2;
     mcs0.mnm_aggression = 0.35f;
-    mcs0.tx_filter = create_filter_rrc1((float) mcs0.output_sample_rate_hz / mcs0.symbol_rate_hz, 0.35f, 12.625f);
-    mcs0.rx_filter = create_filter_rrc1((float) mcs0.input_sample_rate_hz / mcs0.symbol_rate_hz, 0.35f, 12.625f);
+    mcs0.tx_filter = create_filter_rrc1((float) mcs0.output_sample_rate_hz / mcs0.symbol_rate_hz, 0.35f, 12);
+    mcs0.rx_filter = create_filter_rrc1((float) mcs0.input_sample_rate_hz / mcs0.symbol_rate_hz, 0.35f, 12);
 
     struct mcs mcs1;
     mcs1.channel_coding = 0;
@@ -187,8 +187,8 @@ int main(){
     mcs1.input_sample_rate_hz = 8000;
     mcs1.order = 4;
     mcs1.mnm_aggression = 0.3f;
-    mcs1.tx_filter = create_filter_rrc1((float) mcs1.output_sample_rate_hz / mcs1.symbol_rate_hz, 0.35f, 12.625f);
-    mcs1.rx_filter = create_filter_rrc1((float) mcs1.input_sample_rate_hz / mcs1.symbol_rate_hz, 0.35f, 12.625f);
+    mcs1.tx_filter = create_filter_rrc1((float) mcs1.output_sample_rate_hz / mcs1.symbol_rate_hz, 0.35f, 12);
+    mcs1.rx_filter = create_filter_rrc1((float) mcs1.input_sample_rate_hz / mcs1.symbol_rate_hz, 0.35f, 12);
 
     struct mcs *cur_mcs = &mcs0;
 
@@ -205,9 +205,9 @@ int main(){
     fe_buf->count = 0;
     fe_buf->stream = fopen("plbk_2_iq.fc32", "w");
     //fe_buf->stream = NULL;
-    char* sample_input_buffer = create_shared_memory(10000 * sizeof(short));
+    char* sample_input_buffer = create_shared_memory(10000 * sizeof(fcomplex));
     struct circBuf *sample_buf = create_shared_memory(sizeof(struct circBuf));
-    sample_buf->element_size = sizeof(short);
+    sample_buf->element_size = sizeof(fcomplex);
     sample_buf->start = sample_input_buffer;
     sample_buf->len = 10000;
     sample_buf->read_idx = 0;

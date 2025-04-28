@@ -29,16 +29,16 @@ int main(){
     //save_filter(filter, "0.6_orig_filter.f32");
     //filter = create_filter_rrc1(80, 0.8f, 12);
     //save_filter(filter, "0.8_orig_filter.f32");
-    filter = create_filter_rrc1(80, 1.0f, 12);
+    filter = create_filter_rrc1(80, 0.35f, 12);
     save_filter(filter, "1.0_orig_filter.f32");
 
     int h_len = 800;
     fcomplex *h = calloc(h_len, sizeof(fcomplex));
     memset(h, 0, h_len*sizeof(fcomplex));
-    h[0]   = (fcomplex)  1.0 + 0.0I;
-    h[80]  = (fcomplex) -1.0 + 0.0I;
-    h[160] = (fcomplex)  1.0 + 0.0I;
-    h[240] = (fcomplex) -1.0 + 0.0I;
+    h[0]   = (fcomplex) -1.0 + 0.0I;
+    h[80]  = (fcomplex)  1.0 + 0.0I;
+    h[160] = (fcomplex) -1.0 + 0.0I;
+    h[240] = (fcomplex)  1.0 + 0.0I;
     h[320] = (fcomplex) -1.0 + 0.0I;
     h[400] = (fcomplex)  1.0 + 0.0I;
     h[480] = (fcomplex)  1.0 + 0.0I;
@@ -74,7 +74,7 @@ int main(){
     int lenA;
     s3 = convolve(f_p, filter->num_taps, filter, &lenA);
     Filter *filter_2;
-    filter_2 = create_filter_rrc(lenA, 1.0f, 80);
+    filter_2 = create_filter_rrc(lenA, 0.35f, 80);
     for (int i =0;i<lenA;i++)
         filter_2->taps[i] = creal(s3[i]);
     file = fopen("test_assoc_1_convolution.f32", "w");
