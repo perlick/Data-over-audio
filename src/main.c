@@ -205,9 +205,9 @@ int main(){
     fe_buf->count = 0;
     fe_buf->stream = fopen("plbk_2_iq.fc32", "w");
     //fe_buf->stream = NULL;
-    char* sample_input_buffer = create_shared_memory(10000 * sizeof(fcomplex));
+    char* sample_input_buffer = create_shared_memory(10000 * sizeof(short));
     struct circBuf *sample_buf = create_shared_memory(sizeof(struct circBuf));
-    sample_buf->element_size = sizeof(fcomplex);
+    sample_buf->element_size = sizeof(short);
     sample_buf->start = sample_input_buffer;
     sample_buf->len = 10000;
     sample_buf->read_idx = 0;

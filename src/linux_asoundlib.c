@@ -71,26 +71,24 @@ static void run_front_end_calculation(
     while (count-- > 0) {
         // read a sample from the buffer
         num_read = read_buf(iq_buf, 1, &sample, 0);
-        while (write_buf(&sample, 1, sample_buf, 1) == 0)
-            sleep(0.01);
-        //// if there's nothing to read, play the carrier.
-        //if (num_read == 0)
-        //    sample = 1 + 0*I;
+        // if there's nothing to read, play the carrier.
+        if (num_read == 0)
+            sample = 1 + 0*I;
 
-        //short res, i;
-        //float inter;
-        //// Assumes amplitudes of I and Q do not exceed -1,1
-        //inter = creal(sample) * sin(phase) + cimag(sample) * cos(phase);
-        //inter = fmin(inter, 1);
-        //inter = fmax(inter, -1);
-        //res = inter * maxval;
-        //while (write_buf(&res, 1, sample_buf, 1) == 0)
-        //    sleep(0.01);
-        ////fwrite(&res, bps, 1, file);
-        ////printf("fe calc: I(%f) * sin(%f) + Q(%f) * cos(%f) * maxval(%d) = res(%d); \n", creal(sample), phase, cimag(sample), phase, maxval, res);
-        //phase += step;
-        //if (phase >= max_phase)
-        //    phase -= max_phase;
+        short res, i;
+        float inter;
+        // Assumes amplitudes of I and Q do not exceed -1,1
+        inter = creal(sample) * sin(phase) + cimag(sample) * cos(phase);
+        inter = fmin(inter, 1);
+        inter = fmax(inter, -1);
+        res = inter * maxval;
+        while (write_buf(&res, 1, sample_buf, 1) == 0)
+            sleep(0.01);
+        //fwrite(&res, bps, 1, file);
+        //printf("fe calc: I(%f) * sin(%f) + Q(%f) * cos(%f) * maxval(%d) = res(%d); \n", creal(sample), phase, cimag(sample), phase, maxval, res);
+        phase += step;
+        if (phase >= max_phase)
+            phase -= max_phase;
     }
     *_phase = phase;
 }
@@ -171,24 +169,21 @@ void start_rx_chain(
     float freq_log[buf_size*2];
     while (1) {
         /* Get Raw Samples */
-        //while (read_buf(sample_c_buf, buf_size, buf, 1) == 0)
-        //    sleep(0.01);
-        //fwrite(buf, sizeof(int16_t), buf_size, file_raw);
-        //fflush(file_raw);
-
-        ///* RF Front End Simulation */
-        //for (int i=0;i<buf_size;i++){
-        //    scaled = (float) buf[i] / maxval;
-        //    sample_buf[i] = scaled * sin(phase) + scaled * cos(phase) * I;
-        //    phase += step;
-        //    if (phase >= max_phase)
-        //        phase -= max_phase;
-        //}
-        //fwrite(sample_buf, sizeof(fcomplex), buf_size, file_iq);
-        //fflush(file_iq);
-
-        while (read_buf(sample_c_buf, buf_size, sample_buf, 1) == 0)
+        while (read_buf(sample_c_buf, buf_size, buf, 1) == 0)
             sleep(0.01);
+        fwrite(buf, sizeof(int16_t), buf_size, file_raw);
+        fflush(file_raw);
+
+        /* RF Front End Simulation */
+        for (int i=0;i<buf_size;i++){
+            scaled = (float) buf[i] / maxval;
+            sample_buf[i] = scaled * sin(phase) + scaled * cos(phase) * I;
+            phase += step;
+            if (phase >= max_phase)
+                phase -= max_phase;
+        }
+        fwrite(sample_buf, sizeof(fcomplex), buf_size, file_iq);
+        fflush(file_iq);
 
         /* Matched Filter */
         int len_filt_out_buf;
@@ -214,6 +209,7 @@ void start_rx_chain(
         }
         max = (max + buf_size/2)%buf_size; // fftshift
         freq_offset_est_hz = (-1*(float)mcs->input_sample_rate_hz/2) + ((float)mcs->input_sample_rate_hz / buf_size) * max;
+        //freq_offset_est_hz = 0;
         printf("Frequency offset estimate: %f\n", freq_offset_est_hz/2);
         float course_adj_phase = 0;
         float t;
@@ -261,17 +257,19 @@ void start_rx_chain(
 
         /* Fine Frequency Sync */
         int N = len_samples;
-        float alpha = 0.132;
-        float beta = 0.00932;
+        float alpha = 0.01;
+        float beta = 0.000025;
         int freq_log_idx = 0;
         for(int i=0;i<N;i++){
             costas_out[i] = costas_in[i] * cexp(-1*I*costas_phase);
             error = creal(costas_out[i]) * cimag(costas_out[i]);
             freq_log[freq_log_idx++] = error;
+
             freq += (beta * error);
             freq_log[freq_log_idx++] = freq;
             costas_phase += freq + (alpha * error);
             freq_log[freq_log_idx++] = costas_phase;
+
             while (costas_phase >= 2*M_PI)
                 costas_phase -= 2*M_PI;
             while (costas_phase < 0)
