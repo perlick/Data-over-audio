@@ -163,7 +163,7 @@ int main(){
     mcs0.carrier_freq_hz = 440;
     mcs0.input_sample_rate_hz = 8000;
     mcs0.order = 2;
-    mcs0.mnm_aggression = 0.35f;
+    mcs0.mnm_aggression = 0.15f;
     mcs0.tx_filter = create_filter_rrc1((float) mcs0.output_sample_rate_hz / mcs0.symbol_rate_hz, 0.35f, 12);
     mcs0.rx_filter = create_filter_rrc1((float) mcs0.input_sample_rate_hz / mcs0.symbol_rate_hz, 0.35f, 12);
 

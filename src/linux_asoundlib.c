@@ -134,7 +134,7 @@ void start_rx_chain(
     FILE *file_course_fft = fopen("cap_4_course.fft", "w");
     FILE *file_course = fopen("cap_4_course.fc32", "w");
     FILE *file_mnm = fopen("cap_5_mnm.fc32", "w");
-    FILE *file_mnm_log = fopen("cap_5_mnm_log.fc32", "w");
+    FILE *file_mnm_log = fopen("cap_5_mnm_log.f32", "w");
     FILE *file_ffs = fopen("cap_6_ffs.fc32", "w");
     FILE *file_ffs_ofst = fopen("cap_6_ffs_log.f3c32", "w");
     FILE *file_const = fopen("cap_7_const.const", "w");
@@ -157,7 +157,9 @@ void start_rx_chain(
     float mu = 0;
     fcomplex out[buf_size + 10];
     fcomplex out_rail[buf_size + 10];
-    int i_in, i_out;
+    memset(out_rail, 0, sizeof(fcomplex)*(buf_size + 10));
+    int i_in = 0;
+    int i_out;
     float mm_val, real, imag;
     fcomplex x, y;
     float mnm_log[buf_size*2];
@@ -223,11 +225,10 @@ void start_rx_chain(
         fflush(file_course);
 
         /* Time Sync */
-        i_in = 0;
         i_out = 2;
         int mu_log_idx = 0;
         while (i_out < buf_size && i_in+16 < buf_size){
-            out[i_out] = filt_out_buf[i_in + (int)mu];
+            out[i_out] = filt_out_buf[i_in];
             real = 0;
             if (creal(out[i_out]) > 0)
                 real = 1;
@@ -239,12 +240,17 @@ void start_rx_chain(
             y = (out[i_out] - out[i_out-2]) * conjf(out_rail[i_out-1]);
             mm_val = creal(y - x);
             mu += ((float) samples_per_symbol) + mcs->mnm_aggression*mm_val;
-            mnm_log[mu_log_idx++] = mm_val;
-            mnm_log[mu_log_idx++] = mu - ((float) samples_per_symbol) ;
+            mnm_log[mu_log_idx++] = mcs->mnm_aggression*mm_val;
             i_in += (int) trunc(mu);
             mu = mu - trunc(mu);
             i_out += 1;
         }
+        // save progress for next batch of samples
+        out[0] = out[i_out-2];
+        out[1] = out[i_out-1];
+        out_rail[0] = out_rail[i_out-2];
+        out_rail[1] = out_rail[i_out-1];
+        i_in = i_in - buf_size;
         fcomplex *costas_in = &out[2];
         int len_samples = i_out-2;
         fwrite(mnm_log, sizeof(float), mu_log_idx, file_mnm_log);
