@@ -103,7 +103,7 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf, FILE *plbk_sym){
     fwrite(sample_buf, sizeof(fcomplex), num_samples, plbk_sym);
 
     int len_filt_buf;
-    fcomplex *filt_buf = convolve_valid(sample_buf, num_samples, mcs->tx_filter, &len_filt_buf);
+    fcomplex *filt_buf = convolve(sample_buf, num_samples, mcs->tx_filter, &len_filt_buf);
 
     // write full packet to front end buffer in one shot.
     int count;
@@ -164,8 +164,8 @@ int main(){
     mcs0.input_sample_rate_hz = 8000;
     mcs0.order = 2;
     mcs0.mnm_aggression = 0.15f;
-    mcs0.tx_filter = create_filter_rrc1((float) mcs0.output_sample_rate_hz / mcs0.symbol_rate_hz, 0.35f, 12);
-    mcs0.rx_filter = create_filter_rrc1((float) mcs0.input_sample_rate_hz / mcs0.symbol_rate_hz, 0.35f, 12);
+    mcs0.tx_filter = create_filter_rrc1((float) mcs0.output_sample_rate_hz / mcs0.symbol_rate_hz, 0.35f, 11);
+    mcs0.rx_filter = create_filter_rrc1((float) mcs0.input_sample_rate_hz / mcs0.symbol_rate_hz, 0.35f, 11);
 
     struct mcs mcs1;
     mcs1.channel_coding = 0;
@@ -187,8 +187,8 @@ int main(){
     mcs1.input_sample_rate_hz = 8000;
     mcs1.order = 4;
     mcs1.mnm_aggression = 0.3f;
-    mcs1.tx_filter = create_filter_rrc1((float) mcs1.output_sample_rate_hz / mcs1.symbol_rate_hz, 0.35f, 12);
-    mcs1.rx_filter = create_filter_rrc1((float) mcs1.input_sample_rate_hz / mcs1.symbol_rate_hz, 0.35f, 12);
+    mcs1.tx_filter = create_filter_rrc1((float) mcs1.output_sample_rate_hz / mcs1.symbol_rate_hz, 0.35f, 11);
+    mcs1.rx_filter = create_filter_rrc1((float) mcs1.input_sample_rate_hz / mcs1.symbol_rate_hz, 0.35f, 11);
 
     struct mcs *cur_mcs = &mcs0;
 

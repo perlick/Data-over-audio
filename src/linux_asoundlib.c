@@ -71,9 +71,9 @@ static void run_front_end_calculation(
     while (count-- > 0) {
         // read a sample from the buffer
         num_read = read_buf(iq_buf, 1, &sample, 0);
-        // if there's nothing to read, play the carrier.
+        // if there's nothing to read, play nothing
         if (num_read == 0)
-            sample = 1 + 0*I;
+            sample = 0 + 0*I;
 
         short res, i;
         float inter;
