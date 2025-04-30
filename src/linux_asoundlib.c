@@ -81,6 +81,7 @@ static void run_front_end_calculation(
         inter = creal(sample) * sin(phase) + cimag(sample) * cos(phase);
         inter = fmin(inter, 1);
         inter = fmax(inter, -1);
+        inter += (rand() / (float) RAND_MAX) * 0.25;
         res = inter * maxval;
         while (write_buf(&res, 1, sample_buf, 1) == 0)
             sleep(0.01);
@@ -100,7 +101,7 @@ void start_tx_chain(
         ){
     double phase = 0;
     int period_size = 128; /*not sure if this really matters for the loopback device*/
-    int lo_freq = mcs->carrier_freq_hz;
+    int lo_freq = mcs->carrier_freq_hz + 1;
     //FILE *plbk_raw = fopen("plbk_3_raw.s16", "w");
     FILE *plbk_raw = NULL;
     sample_buf->stream = fopen("plbk_3_raw.s16", "w");
