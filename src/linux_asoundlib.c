@@ -51,6 +51,10 @@ struct transfer_method {
                  CircBuf *iq_buf, int lo_freq);
 };
 
+float symbol_distance(fcomplex s1, fcomplex s2){
+   return sqrt((creal(s2) - creal(s1))*(creal(s2) - creal(s1)) + (cimag(s2) - cimag(s1))*(cimag(s2) - cimag(s1)));
+}
+
 static void run_front_end_calculation(
               CircBuf *sample_buf, /*output sample buffer*/
               int count, /*number of iq samples to be converted form iq_buf*/
@@ -137,6 +141,7 @@ void start_rx_chain(
     FILE *file_ffs = fopen("cap_6_ffs.fc32", "w");
     FILE *file_ffs_ofst = fopen("cap_6_ffs_log.f3c32", "w");
     FILE *file_const = fopen("cap_7_const.const", "w");
+    FILE *file_demod_sym = fopen("cap_8_demod_sym.fc32", "w");
     //printf("Front end: lo_freq(%d), rate(%d)\n", lo_freq, rate);
     static double max_phase = 2.0 * M_PI;
     double phase = 0;
@@ -168,6 +173,7 @@ void start_rx_chain(
     float error;
     fcomplex costas_out[buf_size];
     float freq_log[buf_size*2];
+    char bits[buf_size/(mcs->bits_per_symbol*8)];
     while (1) {
         /* Get Raw Samples */
         while (read_buf(sample_c_buf, buf_size, buf, 1) == 0)
@@ -280,10 +286,46 @@ void start_rx_chain(
         fflush(file_ffs_ofst);
         fwrite(costas_out, sizeof(fcomplex), N, file_ffs);
         fflush(file_ffs);
+        float max_amp = 0;
+
+        /* Scale */
+        for(int i=0;i<len_samples;i++){
+            max_amp = fmax(max_amp, symbol_distance(costas_out[i], 0+0*I));
+        }
+        for(int i=0;i<len_samples;i++){
+            costas_out[i] = costas_out[i] / max_amp;
+        }
         fwrite(costas_out, sizeof(fcomplex), N, file_const);
         fflush(file_const);
 
         /* Demodulate */
+        float min_dist, dist;
+        int min_index;
+        for(int i=0;i<len_samples;i++){
+            min_dist = symbol_distance(costas_out[i], mcs->symbol_list_complex[0]);
+            min_index = 0;
+            for(int j=0;j<mcs->num_symbols;j++){
+                dist = symbol_distance(costas_out[i], mcs->symbol_list_complex[j]);
+                if(dist < min_dist)
+                    min_index = j;
+            }
+            costas_out[i] = mcs->symbol_list_complex[min_index];
+            int first_bit_index = i * mcs->bits_per_symbol;
+            int first_byte_index = first_bit_index / 8;
+            int last_bit_index = first_bit_index + mcs->bits_per_symbol;
+            int last_byte_index = last_bit_index / 8;
+            int shift = 8 - (first_bit_index % 8);
+            if(first_byte_index == last_byte_index){
+                bits[first_byte_index] |= mcs->symbol_list_int[min_index] << 8 - (first_bit_index % 8);
+            }else if(first_byte_index == last_byte_index+1){
+                bits[first_byte_index] |= (mcs->symbol_list_int[min_index] >> (1+last_bit_index % 8));
+                bits[first_byte_index+1] |=  mcs->symbol_list_int[min_index] << 8 - (first_bit_index % 8);
+            }
+            //for(int b=first_byte_index; b<=last_byte_index; b++)
+            //    bits[b] |= (mcs->symbol_list_int[min_index] << b & 0xf) << shift;
+        }
+        fwrite(costas_out, sizeof(fcomplex), len_samples, file_demod_sym);
+        fflush(file_demod_sym);
 
         // frame detection
 
