@@ -166,6 +166,20 @@ int main(){
     mcs0.mnm_aggression = 0.15f;
     mcs0.tx_filter = create_filter_rrc1((float) mcs0.output_sample_rate_hz / mcs0.symbol_rate_hz, 0.35f, 11);
     mcs0.rx_filter = create_filter_rrc1((float) mcs0.input_sample_rate_hz / mcs0.symbol_rate_hz, 0.35f, 11);
+    mcs0.len_frame_detect_signal = 11;
+    mcs0.frame_detect_signal = calloc(mcs0.len_frame_detect_signal, sizeof(fcomplex));
+    mcs0.frame_detect_signal[0] =  1+0*I;
+    mcs0.frame_detect_signal[0] =  1+0*I;
+    mcs0.frame_detect_signal[0] =  1+0*I;
+    mcs0.frame_detect_signal[0] = -1+0*I;
+    mcs0.frame_detect_signal[0] = -1+0*I;
+    mcs0.frame_detect_signal[0] = -1+0*I;
+    mcs0.frame_detect_signal[0] =  1+0*I;
+    mcs0.frame_detect_signal[0] = -1+0*I;
+    mcs0.frame_detect_signal[0] = -1+0*I;
+    mcs0.frame_detect_signal[0] =  1+0*I;
+    mcs0.frame_detect_signal[0] = -1+0*I;
+    mcs0.frame_detect_level = 0.8;
 
     struct mcs mcs1;
     mcs1.channel_coding = 0;
@@ -189,6 +203,20 @@ int main(){
     mcs1.mnm_aggression = 0.3f;
     mcs1.tx_filter = create_filter_rrc1((float) mcs1.output_sample_rate_hz / mcs1.symbol_rate_hz, 0.35f, 11);
     mcs1.rx_filter = create_filter_rrc1((float) mcs1.input_sample_rate_hz / mcs1.symbol_rate_hz, 0.35f, 11);
+    mcs1.len_frame_detect_signal = 11;
+    mcs1.frame_detect_signal = calloc(mcs1.len_frame_detect_signal, sizeof(fcomplex));
+    mcs1.frame_detect_signal[0] =  1+0*I;
+    mcs1.frame_detect_signal[0] =  1+0*I;
+    mcs1.frame_detect_signal[0] =  1+0*I;
+    mcs1.frame_detect_signal[0] = -1+0*I;
+    mcs1.frame_detect_signal[0] = -1+0*I;
+    mcs1.frame_detect_signal[0] = -1+0*I;
+    mcs1.frame_detect_signal[0] =  1+0*I;
+    mcs1.frame_detect_signal[0] = -1+0*I;
+    mcs1.frame_detect_signal[0] = -1+0*I;
+    mcs1.frame_detect_signal[0] =  1+0*I;
+    mcs1.frame_detect_signal[0] = -1+0*I;
+    mcs1.frame_detect_level = 0.8;
 
     struct mcs *cur_mcs = &mcs0;
 

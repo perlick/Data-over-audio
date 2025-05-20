@@ -141,7 +141,8 @@ void start_rx_chain(
     FILE *file_ffs = fopen("cap_6_ffs.fc32", "w");
     FILE *file_ffs_ofst = fopen("cap_6_ffs_log.f3c32", "w");
     FILE *file_const = fopen("cap_7_const.const", "w");
-    FILE *file_demod_sym = fopen("cap_8_demod_sym.fc32", "w");
+    FILE *file_frame = fopen("cap_8_frame_detect.fc32", "w");
+    FILE *file_demod_sym = fopen("cap_9_demod_sym.fc32", "w");
     //printf("Front end: lo_freq(%d), rate(%d)\n", lo_freq, rate);
     static double max_phase = 2.0 * M_PI;
     double phase = 0;
@@ -173,6 +174,8 @@ void start_rx_chain(
     float error;
     fcomplex costas_out[buf_size];
     float freq_log[buf_size*2];
+    fcomplex *frame_detect;
+    int len_frame_detect;
     char bits[buf_size/(mcs->bits_per_symbol*8)];
     while (1) {
         /* Get Raw Samples */
@@ -298,6 +301,11 @@ void start_rx_chain(
         fwrite(costas_out, sizeof(fcomplex), N, file_const);
         fflush(file_const);
 
+        /* Frame Detection */
+        frame_detect = correlate(costas_out, N, mcs->frame_detect_signal, mcs->len_frame_detect_signal, &len_frame_detect);
+        fwrite(frame_detect, sizeof(fcomplex), len_frame_detect, file_frame);
+        fflush(file_frame);
+
         /* Demodulate */
         float min_dist, dist;
         int min_index;
@@ -327,7 +335,6 @@ void start_rx_chain(
         fwrite(costas_out, sizeof(fcomplex), len_samples, file_demod_sym);
         fflush(file_demod_sym);
 
-        // frame detection
 
         // channel decode
     }

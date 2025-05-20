@@ -200,6 +200,33 @@ fcomplex *convolve(fcomplex *h, int lenH, Filter *filter, int* lenY){
     return y;
 }
 
+/* Correlate two signals.
+
+h: signal
+lenH: length of H in elements
+x: filter to be used
+lenX: length of X in elements
+lenY: length of returned signal
+*/
+fcomplex *correlate(fcomplex *h, int lenH, fcomplex *x, int lenX, int* lenY){
+    int nconv = lenH + lenX - 1;
+    *lenY = nconv;
+    int i,j;
+
+    fcomplex *y = calloc(nconv, sizeof(fcomplex));
+    memset(y, 0, nconv*sizeof(fcomplex));
+
+    for (i = 0; i < nconv; i++) {
+        y[i] = 0 + 0 * I;
+        for (j = 0; j < lenX; j++) {
+            if (i - j >= 0 && i - j < lenH) {
+                y[i] += h[i - j] * conj(x[j]);
+            }
+        }
+    }
+    return y;
+}
+
 /* Save a Filter to file
 
 filter: filter to be saved

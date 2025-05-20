@@ -25,6 +25,8 @@ fcomplex *convolve_valid(fcomplex *h, int lenH, Filter *x, int* lenY);
 
 fcomplex *convolve(fcomplex *h, int lenH, Filter *x, int* lenY);
 
+fcomplex *correlate(fcomplex *h, int lenH, fcomplex *x, int lenX, int* lenY);
+
 void save_filter(Filter* filter, const char *pathname);
 
 #endif

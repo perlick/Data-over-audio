@@ -16,6 +16,9 @@ struct mcs {
     float mnm_aggression;
     Filter *tx_filter;
     Filter *rx_filter;
+    fcomplex *frame_detect_signal;
+    int len_frame_detect_signal;
+    float frame_detect_level;
 };
 typedef struct mcs MCS;
 
