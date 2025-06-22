@@ -75,11 +75,11 @@ void tx_encode_packet(CircBuf *buf, MCS *mcs, CircBuf *out_buf, FILE *plbk_sym){
         int sym_int;
         if(first_byte_index == last_byte_index){
             sym_int = data_buf[first_byte_index];
-        }else if(first_byte_index == last_byte_index+1){
+        }else if(first_byte_index == last_byte_index-1){
             sym_int = data_buf[first_byte_index] + (data_buf[last_byte_index]<<8);
-        }else if(first_byte_index == last_byte_index+2){
+        }else if(first_byte_index == last_byte_index-2){
             sym_int = data_buf[first_byte_index] + (data_buf[first_byte_index+1]<<8) + (data_buf[last_byte_index]<<16);
-        }else if(first_byte_index == last_byte_index+3){
+        }else if(first_byte_index == last_byte_index-3){
             sym_int = data_buf[first_byte_index] + (data_buf[first_byte_index+1]<<8) + (data_buf[first_byte_index+2]<<16) + (data_buf[last_byte_index]<<24);
         }
         int shift = first_bit_index % 8;
