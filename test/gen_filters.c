@@ -87,9 +87,30 @@ int main(){
     file = fopen("test_assoc_2_convolution.fc32", "w");
     fwrite(s4, sizeof(fcomplex), lenB, file);
     fclose(file);
+
+
+    // autocorrelate the frame detection sequence
+    int len_frame_detect_signal = 11;
+    fcomplex *frame_detect_signal = calloc(len_frame_detect_signal, sizeof(fcomplex));
+    frame_detect_signal[0] =  1+0*I;
+    frame_detect_signal[1] =  1+0*I;
+    frame_detect_signal[2] =  1+0*I;
+    frame_detect_signal[3] = -1+0*I;
+    frame_detect_signal[4] = -1+0*I;
+    frame_detect_signal[5] = -1+0*I;
+    frame_detect_signal[6] =  1+0*I;
+    frame_detect_signal[7] = -1+0*I;
+    frame_detect_signal[8] = -1+0*I;
+    frame_detect_signal[9] =  1+0*I;
+    frame_detect_signal[10] = -1+0*I;
+    int len_frame_detect;
+    fcomplex *frame_detect = correlate(frame_detect_signal, 11, frame_detect_signal, len_frame_detect_signal, &len_frame_detect);
+    file = fopen("test_frame_detect_autocorrelation.fc32", "w");
+    fwrite(frame_detect, sizeof(fcomplex), len_frame_detect, file);
+    fclose(file);
+
     free(h);
     free(s3);
     free(s2);
     free(s4);
-
 }

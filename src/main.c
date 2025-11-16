@@ -132,7 +132,8 @@ int main(){
     //     exit(1);
     // }
 
-    char myArray[] = { 0xff, 0x11, 0x22, 0xff, 0xec, 0x12, 0x00, 0x11, 0x22, 0xff, 0xec, 0x12, 0x00, 0x11, 0x22, 0xff, 0xec, 0x12,0x00, 0x11, 0x22, 0xff, 0xec, 0x12};
+    //char myArray[] = { 0xff, 0x11, 0x22, 0xff, 0xec, 0x12, 0x00, 0x11, 0x22, 0xff, 0xec, 0x12, 0x00, 0x11, 0x22, 0xff, 0xec, 0x12, 0x00, 0x11, 0x22, 0xff, 0xec, 0x12};
+    char myArray[] = { 0xf5, 0x00, 0x00, 0x00, 0x00, 0x5b, 0x80, 0x00, 0x00, 0x1d, 0xa0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
     char* tx_input_buffer = malloc(max_L2_packet_size_bytes);
 
@@ -169,16 +170,16 @@ int main(){
     mcs0.len_frame_detect_signal = 11;
     mcs0.frame_detect_signal = calloc(mcs0.len_frame_detect_signal, sizeof(fcomplex));
     mcs0.frame_detect_signal[0] =  1+0*I;
-    mcs0.frame_detect_signal[0] =  1+0*I;
-    mcs0.frame_detect_signal[0] =  1+0*I;
-    mcs0.frame_detect_signal[0] = -1+0*I;
-    mcs0.frame_detect_signal[0] = -1+0*I;
-    mcs0.frame_detect_signal[0] = -1+0*I;
-    mcs0.frame_detect_signal[0] =  1+0*I;
-    mcs0.frame_detect_signal[0] = -1+0*I;
-    mcs0.frame_detect_signal[0] = -1+0*I;
-    mcs0.frame_detect_signal[0] =  1+0*I;
-    mcs0.frame_detect_signal[0] = -1+0*I;
+    mcs0.frame_detect_signal[1] =  1+0*I;
+    mcs0.frame_detect_signal[2] =  1+0*I;
+    mcs0.frame_detect_signal[3] = -1+0*I;
+    mcs0.frame_detect_signal[4] = -1+0*I;
+    mcs0.frame_detect_signal[5] = -1+0*I;
+    mcs0.frame_detect_signal[6] =  1+0*I;
+    mcs0.frame_detect_signal[7] = -1+0*I;
+    mcs0.frame_detect_signal[8] = -1+0*I;
+    mcs0.frame_detect_signal[9] =  1+0*I;
+    mcs0.frame_detect_signal[10] = -1+0*I;
     mcs0.frame_detect_level = 0.8;
 
     struct mcs mcs1;
@@ -206,16 +207,16 @@ int main(){
     mcs1.len_frame_detect_signal = 11;
     mcs1.frame_detect_signal = calloc(mcs1.len_frame_detect_signal, sizeof(fcomplex));
     mcs1.frame_detect_signal[0] =  1+0*I;
-    mcs1.frame_detect_signal[0] =  1+0*I;
-    mcs1.frame_detect_signal[0] =  1+0*I;
-    mcs1.frame_detect_signal[0] = -1+0*I;
-    mcs1.frame_detect_signal[0] = -1+0*I;
-    mcs1.frame_detect_signal[0] = -1+0*I;
-    mcs1.frame_detect_signal[0] =  1+0*I;
-    mcs1.frame_detect_signal[0] = -1+0*I;
-    mcs1.frame_detect_signal[0] = -1+0*I;
-    mcs1.frame_detect_signal[0] =  1+0*I;
-    mcs1.frame_detect_signal[0] = -1+0*I;
+    mcs1.frame_detect_signal[1] =  1+0*I;
+    mcs1.frame_detect_signal[2] =  1+0*I;
+    mcs1.frame_detect_signal[3] = -1+0*I;
+    mcs1.frame_detect_signal[4] = -1+0*I;
+    mcs1.frame_detect_signal[5] = -1+0*I;
+    mcs1.frame_detect_signal[6] =  1+0*I;
+    mcs1.frame_detect_signal[7] = -1+0*I;
+    mcs1.frame_detect_signal[8] = -1+0*I;
+    mcs1.frame_detect_signal[9] =  1+0*I;
+    mcs1.frame_detect_signal[10] = -1+0*I;
     mcs1.frame_detect_level = 0.8;
 
     struct mcs *cur_mcs = &mcs0;

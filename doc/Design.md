@@ -12,8 +12,8 @@ Most of the DSP logic is written to follow http://pysdr.org.
 
 ## TX DSP Chain
 
-The TX Chain is made up of two parts, 
-1. **The Data Modulation Function (DMF)**: reads a packet of data and modulates it into IQ. 
+The TX Chain is made up of two parts,
+1. **The Data Modulation Function (DMF)**: reads a packet of data and modulates it into IQ.
 1. **The Front-End Loop (FEL)**: acts as the "SDR" front-end device. The free running loop accepts a stream of IQ and plays a signal from the speaker device.
 
 ### Data Modulation Function
@@ -24,20 +24,20 @@ The DMF (Data Modulation Function) performs the following DSP tasks.
 1. Upscale and filter
 1. Send to buffer
 
-Note that this function is run on demand. Its' input is a full L2 packet of data. It will modulate this packet and write the corresponding IQ stream to its' outpu buffer. The DMF outputs directly to the FEL. Because the FEL is constantly reading the DMF's output buffer, it may become empty and the FEL is designed to function in that case.  
+Note that this function is run on demand. Its' input is a full L2 packet of data. It will modulate this packet and write the corresponding IQ stream to its' outpu buffer. The DMF outputs directly to the FEL. Because the FEL is constantly reading the DMF's output buffer, it may become empty and the FEL is designed to function in that case.
 
 ### Front-End Loop
 
-The Front-End Loop (FEL) is responsible for simulating the DSP device in a typical RF set up. It will perform the following tasks. 
+The Front-End Loop (FEL) is responsible for simulating the DSP device in a typical RF set up. It will perform the following tasks.
 
 1. Read IQ samples from the DMF output buffer
 1. Mix IQ w/ Lo
 1. Add I and Q parts together
 1. Send samples to be played
 
-It will read DSP from the DMF output buffer (when avialable) and continuously supply audio samples to the system speakers. The system audio buffer should never underflow as this could cause loss of phase sync. 
+It will read DSP from the DMF output buffer (when avialable) and continuously supply audio samples to the system speakers. The system audio buffer should never underflow as this could cause loss of phase sync.
 
-## Note on the Local Oscillator 
+## Note on the Local Oscillator
 
 In the SDR setup described on pysdr.org, a physical Lo is used for signal mixing, then addition of I and Q happens. These particular hardware singal processing steps are not going to be possible on a consumer device so we must simulate them in digital. All we can send the speakers is a 1D stream of samples. These samples will be similar to the RF signal right before it reaches the antenna element. Thus, the signal processing steps to be sumilated are
 
